@@ -4,7 +4,7 @@
   "description": "Generic multi-agent software engineering board with atomic task claiming, git worktree isolation, A2A protocol dispatch, and FIFO resource locks.",
   "repo_path": "/workspaces/project",
   "worktrees_dir": "/workspaces/worktrees",
-  "board_background_md": "Use this board to coordinate autonomous coding agents across isolated git worktrees via MCP and A2A v0.2.1.",
+  "board_background_md": "Use this board to coordinate autonomous coding agents across isolated git worktrees via MCP and A2A v0.2.1. Default routing uses Frontier Orchestrators in `triage` (to research and write unambiguous specs), Mid-Range / Local Workers at high/max care in `todo` & `in-progress`, Cross-Vendor Reviewers in `review`, and Frontier Failure-Diagnosticians in `blocked`.",
   "skill_config": {
     "skill_name": "project-board",
     "description": "How to pick up, work, triage, review, and hand back a task on the shared Kanbanana MCP board without clashing with other agents.",
@@ -15,7 +15,7 @@
     "local_memory_dir": "",
     "memory_table": [],
     "graphify_graph_path": "",
-    "custom_rules_md": "- Always work in an isolated git worktree (`board/<ticket-code>`).\n- Run the test suite and linter before moving a ticket to `review`.\n- Release any held resource/environment locks when your run finishes.",
+    "custom_rules_md": "- Always work in an isolated git worktree (`board/<ticket-code>`).\n- Triage Orchestrators must write mid-range-worker-ready specs (`files_md` exact paths, `do_md` exact signatures + steps + Out-of-Scope, `done_when_md` runnable verification commands) and avoid over-decomposing simple tasks.\n- Implementation Workers must obey `files_md`/`do_md` scope strictly; if verification fails twice, stop looping and escalate to `blocked` for a Frontier Diagnostician.\n- Run the test suite and linter before moving a ticket to `review`, and release any held resource locks when finished.",
     "skill_output_path": "~/.claude/skills/project-board/SKILL.md"
   },
   "sections": [

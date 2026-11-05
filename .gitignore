@@ -324,5 +324,19 @@ backend/data/*.db-shm
 # Private project configurations & research docs
 configs/projects/allpaca.json
 docs/CURRENT_STATE/
+.agents/
 .agents/skills/allpaca-code-review/
+
+# Private keys, certificates, and credentials
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.csr
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
 

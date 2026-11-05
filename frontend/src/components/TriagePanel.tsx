@@ -101,11 +101,11 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
       }
       lines.push(
         '',
-        '**Agent Investigation Checklist:**',
-        '1. Inspect how the external implementation works and how it maps to our codebase.',
-        '2. Check our architectural / environment constraints and whether this solves a measured bottleneck.',
-        '3. Check exactness impact (`exact`, `distribution-exact`, or `lossy` behind `[experimental]`).',
-        '4. Either cross-post findings to an existing board ticket, propose actionable TODO sub-tickets, or close as not-worth-it.',
+        '**Orchestrator Investigation Checklist (Frontier Model):**',
+        '1. Inspect how the external implementation works and map exact symbols/files in our codebase.',
+        '2. Decide whether ROI justifies building (`not-worth-it` if negative) and check exactness impact (`exact`, `distribution-exact`, or `lossy` behind `[experimental]`).',
+        '3. Right-size any breakdown: emit 1 ticket if cohesive (1–2 files / <150 LOC); split into 2–5 stories only across distinct layers or disjoint parallel files.',
+        '4. Write mid-range-worker-ready specs: exact Modify/Reference paths in `files_md`, exact signatures + ordered steps + `Out-of-Scope` in `do_md`, and runnable verification commands in `done_when_md`.',
       )
       if (extNotes.trim()) {
         lines.push('', `**Additional Context:**\n${extNotes.trim()}`)
@@ -122,10 +122,10 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
       }
       lines.push(
         '',
-        '**Agent Investigation Checklist:**',
+        '**Orchestrator Investigation Checklist (Frontier Model):**',
         '1. Check memory pages, local memory notes, and query any graph index if available.',
-        '2. Estimate expected performance / latency / architectural impact before writing production code.',
-        '3. Grill the user with clarifying questions (`ask_triage_questions`) if design tradeoffs exist, then propose TODO sub-tickets.',
+        '2. Resolve all design ambiguities upfront (`ask_triage_questions`) so downstream mid-range workers never guess.',
+        '3. Avoid over-decomposition (1 ticket if <150 LOC / 1–2 files) and write worker-ready `files_md` (exact Modify/Reference paths), `do_md` (exact signatures, steps, Out-of-Scope), and `done_when_md` (runnable test commands).',
       )
       if (featQuestions.trim()) {
         lines.push('', `**Specific Questions / Hypothesis:**\n${featQuestions.trim()}`)
@@ -773,21 +773,21 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
                       type="text"
                       value={propFiles}
                       onChange={(e) => setPropFiles(e.target.value)}
-                      placeholder="Files (e.g. hip/src/kernels.cpp)"
+                      placeholder="Files — exact Modify/Create + Reference paths (e.g. Modify: src/foo.py; Reference: src/bar.py)"
                       className="rounded-lg bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-xs font-mono text-white"
                     />
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={propDo}
                       onChange={(e) => setPropDo(e.target.value)}
-                      placeholder="Do (implementation steps)..."
+                      placeholder="Worker-ready Do blueprint: exact function/type signatures, numbered edit steps, edge cases, and explicit Out-of-Scope (Do NOT Touch)..."
                       className="rounded-lg bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-xs font-mono text-white"
                     />
                     <textarea
                       rows={2}
                       value={propDoneWhen}
                       onChange={(e) => setPropDoneWhen(e.target.value)}
-                      placeholder="Done when (verification & ab benchmark criteria)..."
+                      placeholder="Deterministic Done-When gate: exact runnable test/build commands + expected assertions..."
                       className="rounded-lg bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-xs font-mono text-white"
                     />
                     <div className="flex justify-end gap-2">

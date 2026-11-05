@@ -9,7 +9,11 @@ from app.main import create_app
 from app.importer import import_current_state_into_db
 
 
-DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "docs" / "CURRENT_STATE"
+_CANDIDATE_DOCS = [
+    Path(__file__).resolve().parent.parent.parent / "docs" / "CURRENT_STATE",
+    Path("D:/code/inference/allpaca-research"),
+]
+DOCS_DIR = next((p for p in _CANDIDATE_DOCS if p.exists() and (p / "BOARD.md").exists()), _CANDIDATE_DOCS[0])
 
 
 @pytest.fixture()

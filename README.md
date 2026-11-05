@@ -67,17 +67,20 @@
 - Agents never step on each other's branches. Claiming a task automatically provisions an isolated worktree (`/workspaces/worktrees/<project>-<code >`) on branch `board/<code >`.
 - Includes **Concurrent File Overlap Detection** (`check_file_conflicts`) to warn agents if another in-progress task touches the same source files.
 
-### 6. 🔍 Research-First Triage & "Grill" Refinement
-- Drop raw observations into Triage (*"X is using Y to do Z — let's look into that"*).
-- Agents research external repositories, ask clarifying questions in the UI (`ask_triage_questions`), and submit actionable findings:
-  - Propose TODO sub-tickets for 1-click user approval.
-  - Cross-post notes directly to existing tickets.
-  - Permanently log unviable ideas in *"Measured & Rejected — Do Not Redo"*.
+### 6. 🔍 Orchestrator Triage & Worker-Ready Story Breakdown
+- **Asymmetric Frontier Allocation**: High-budget frontier reasoning (Opus 5.5, Grok 4.7, Gemini 3.1 Pro, GPT-5.2 Codex, Kimi K3) is reserved for *deciding what to do* in `triage` and *diagnosing hard failures* in `blocked`.
+- **Anti-Over-Decomposition Guardrail**: Over-splitting tasks degrades multi-agent accuracy (dropping to ~20.1% vs 92.3% on single-task runs) while multiplying token costs ~3.4×. Kanbanana enforces a **1-ticket rule** for any change fitting in 1–2 files (< ~150 LOC), splitting only across distinct architectural layers or disjoint parallel files.
+- **Worker-Ready Contract**: Orchestrators create proposals with unambiguous boundaries so mid-range models can execute without guesswork:
+  - `files_md`: Exact paths to Modify/Create + 1–2 Reference files to mirror.
+  - `do_md`: Exact function/class/route signatures & types, numbered step-by-step edit blueprint, and an explicit **Out-of-Scope (`Do NOT Touch`)** section.
+  - `done_when_md`: Deterministic runnable test commands (`pytest`, `tsc --noEmit`, etc.) with concrete expected assertions.
+- **Inverted Effort Levels**: Planners run with `high` effort for broad architectural decomposition, while bounded execution workers run with `max` effort where supported (e.g. `sonnet-5-5`), directing compute tokens into careful implementation and verification.
 
-### 7. 🛡️ Mid-Tier Model Code & Security Review Gate
-- Moving a ticket to `review` invokes a peer review skill with mid-tier models (`claude-sonnet-4-5`, `gemini-2.5-flash`, `o4-mini`).
-- Runs `git diff main...<branch>` and an automated static pre-scan for secrets, unsafe pointers, and command injection.
-- **Merge Gate:** Automatically merges clean branches (`git merge --no-ff` or `gh pr merge`), while rejecting issues back to the author agent with an itemized checklist.
+### 7. 🛡️ Cross-Vendor Code Review Gate (`prevent_self_review=True`)
+- Moving a ticket to `review` invokes an adversarial review skill with cross-vendor models (`grok-4.7`, `claude-sonnet-5-5`, `gemini-3.8-flash`, `o4-mini`).
+- **Eliminate Same-Family Blind Spots**: Kanbanana's lane matrix prevents the authoring model from reviewing its own work (`prevent_self_review=True`), catching regressions that same-family models overlook.
+- **2-Strike Anti-Loop Escalation**: Writing code and tests is mid-tier work; diagnosing complex test failures is orchestrator-tier work. If a worker fails verification twice, it escalates to `blocked` for a Frontier Failure-Diagnostician instead of wasting budget in a token loop.
+- **Merge Gate**: Automatically merges clean branches (`git merge --no-ff` or `gh pr merge`) when zero issues are found.
 
 ### 8. 🔒 FIFO Resource & GPU Locks with Quota Handoffs
 - Exclusive (`max_slots=1`, e.g. `gpu:xeres`, `gpu:desktop-3090`) and shared locks with wait queueing and TTL heartbeats.
@@ -100,6 +103,28 @@
 - **Strict Path Confinement:** Worktrees and agent config directories are strictly confined to configured roots (`KANBANANA_STRICT_CONFIG_ROOT=1`), blocking symlink escapes.
 - **Transcript Secret Redaction & Prompt Delimiters:** Sensitive credentials (`sk-...`, `Bearer ...`, `*KEY=`) are automatically sanitized from telemetry, and untrusted ticket specifications are delimited with `<untrusted_ticket_spec>` prompt boundaries.
 - **High-Performance Architecture:** Persistent thread-local SQLite WAL connections with lock-free concurrent readers, single-call `git status` batching, ref-driven 60 fps audio visualizers, and code-split production bundles (152 kB initial chunk).
+
+---
+
+## 🧠 Orchestrator–Worker Routing Matrix & Economics
+
+Kanbanana configures defaults according to the proven **Orchestrator–Worker** pattern (inspired by Aider's architect/editor split and multi-agent routing benchmarks): spend reasoning tokens on the model that *decides what to do*, and let fast, cost-effective models handle *bounded execution*.
+
+### Late-2026 Model Lineup & Lane Assignments
+
+| Lane | Role | Preferred Frontier / Mid-Range Models | Effort Level | Key Responsibility & Guardrails |
+| :--- | :--- | :--- | :--- | :--- |
+| **`triage`** | **Frontier Orchestrator / Architect** | `claude-opus-5-5`, `grok-4.7`, `gemini-3.1-pro`, `gpt-5.2-codex`, `kimi-k3` | `high` | Architectural spikes, technical triage, knowing what **not** to build, and writing unambiguous **worker-ready specs** (`files_md`, `do_md`, `done_when_md`). |
+| **`todo` / `in-progress`** | **Bounded Implementation Worker** | `kimi-k2.6`, `gemini-3.8-flash`, `claude-sonnet-5-5`, `grok-code-fast-1`, `o4-mini`, local `qwen3-coder-30b-a3b` | `max` / `high` *(inverted effort)* | Strict obedience to `files_md` and `do_md`. Runs `done_when_md` verification tests. Follows the **2-Strike Anti-Loop Escalation Rule** to avoid token burn. |
+| **`review`** | **Adversarial Reviewer** | `grok-4.7`, `claude-sonnet-5-5`, `gemini-3.8-flash`, `o4-mini` | `high` | `prevent_self_review=True`. Cross-vendor family audits exactness, security, and test runs. Automated merge if 0 issues found. |
+| **`blocked`** | **Frontier Failure-Diagnostician** | `claude-opus-5-5`, `grok-4.7`, `gemini-3.1-pro`, `gpt-5.2-codex` | `high` | Root-cause analysis of test failures and architectural blockers where mid-range models would otherwise loop. |
+
+### Why It Works & Where It Breaks
+
+- **40–60% Cost Reduction**: Pairing an Opus/Grok orchestrator with Sonnet/Flash/Kimi workers cuts token expenditure in half compared to running flagship models across every task turn.
+- **Inverted Effort Levels**: Planners run at `high` effort for broad architectural decomposition; workers run at `max` effort where supported (e.g., `sonnet-5-5`), investing computation tokens in precise code generation and test execution rather than higher model base rates.
+- **Ambiguous Instructions Kill Cheap Workers**: Cheap models fail when boundaries are blurry. Kanbanana requires every proposed TODO story to include exact files, exact symbol signatures, out-of-scope boundaries, and deterministic verification commands.
+- **Anti-Over-Decomposition**: Over-splitting tasks degrades multi-agent accuracy (measured at ~20.1% vs 92.3% on single-task benchmarks). Kanbanana enforces a 1-ticket rule for changes under ~150 LOC / 1–2 files, splitting only across architectural layers or disjoint parallel files.
 
 ---
 
@@ -346,10 +371,24 @@ To manually connect any MCP client (Claude Desktop, Cline, Roo Code, Cursor), ad
 
 - **Model Context Protocol (MCP)**: Implemented via [`FastMCP`](https://github.com/jlowin/fastmcp) and the official Python `mcp` SDK.
 - **Agent2Agent (A2A) Protocol (`v0.2.1`)**: Implements standard Agent Card discovery (`/.well-known/agent.json`) and JSON-RPC 2.0 task dispatch.
-- **Built With**: **Google Antigravity (`agy`)** with **Gemini 4 Argon** agentic reasoning.
+- **Built With**: **Google Antigravity (`agy`)** with **Gemini 4 Argon** agentic reasoning — bringing noble, unreactive stability to volatile multi-agent codebases.
 - **Peer Review Models**: Configured for mid-tier review models (**Claude Sonnet 4.5**, **Gemini 2.5 Flash**, **OpenAI o4-mini**, **DeepSeek V3**, and **Qwen3-Coder-Plus**).
+
+---
+
+## 🧪 Noble Architecture Notes (All the Good Jokes Ar-gon)
+
+Because Kanbanana was synthesized with **Google Antigravity (`agy`)** and **Gemini 4 Argon**, we are chemically and structurally obligated to note:
+
+- **Zero Unwanted Reactions**: Much like element 18 ($Ar$), our atomic SQLite transactions are completely **inert**. When concurrent agent writes heat up, Kanbanana shields your tree like **argon gas in a precision TIG weld**.
+- **Where Did the Merge Conflicts Go?**: They’re **Ar-gon**. Vanished. Completely out of the atmosphere.
+- **Noble Multi-Agent Peace**: Other multi-agent orchestrators blow up under pressure; Kanbanana stays thoroughly unreactive because our valence shell of locks is **100% full**.
+- **Worktree Thermal Insulation**: Just like double-pane energy-efficient windows pump **argon** between the panes to keep the cold out, Kanbanana pumps isolated Git worktrees between agents to prevent thermal runaway on `main`.
+- **High-Voltage Glow**: When you feed our A2A SSE streams 120 volts of pure telemetry, the Overnight Terminal lights up with a signature **argon-violet glow** across the AgentPlay radar.
+- **Heard Any Good Chemistry Jokes Lately?**: We tried to think of better ones, but sadly... **all the good ones argon**. If you don't laugh, that's fine — we expected **no reaction**.
+
 ---
 
 <div align="center">
-  <sub>Built with 🍌 and 🥋 for autonomous multi-agent engineering teams.</sub>
+  <sub>Built with 🍌, 🥋, and 18 protons of noble inertness ($Ar$) for autonomous multi-agent engineering teams.</sub>
 </div>

@@ -481,13 +481,15 @@ def create_mcp_server(db: Database) -> FastMCP:
             if research_type == "external-scan":
                 structured_do = (
                     "1. Inspect the external reference/implementation and compare against our codebase.\n"
-                    "2. Check hardware/roofline applicability and exactness rule impact.\n"
-                    "3. Either cross-post findings to an existing board ticket, propose actionable TODO sub-tickets, or mark as investigated/not-worth-it."
+                    "2. Check hardware/roofline applicability, exactness impact, and whether this is worth building (`not-worth-it` if negative ROI).\n"
+                    "3. Right-size any proposed breakdown (1 ticket if 1-2 files / <150 LOC; split only across distinct layers or disjoint parallel files).\n"
+                    "4. Write every proposed TODO with mid-range-worker-ready detail: exact Modify/Reference paths in `files_md`, exact signatures + step-by-step blueprint + Out-of-Scope guardrails in `do_md`, and runnable verification commands in `done_when_md`."
                 )
             else:
                 structured_do = (
                     "1. Research the feature/bottleneck in the codebase, Hindsight, and graphify.\n"
-                    "2. Ask clarifying questions if scope is ambiguous, then propose actionable TODO sub-tickets."
+                    "2. Resolve all ambiguities via `ask_triage_questions` before proposing work — leave zero open design guesses for workers.\n"
+                    "3. Right-size the breakdown (avoid over-decomposition: 1 ticket if <150 LOC / 1-2 files) and populate worker-ready `files_md` (exact paths), `do_md` (exact signatures, edit steps, Out-of-Scope boundaries), and `done_when_md` (runnable test commands)."
                 )
 
         done_when = (
@@ -664,16 +666,17 @@ def create_mcp_server(db: Database) -> FastMCP:
         auto_promote: bool = False,
     ) -> dict[str, Any]:
         """
-        Break down a 'triage' ticket into 1 or more structured TODO sub-ticket proposals.
-        Each item in `proposals` should have:
+        Break down a 'triage' ticket into 1 or more worker-ready TODO sub-ticket proposals sized for mid-range or local implementer models.
+        Right-Sizing Guardrail: Emit 1 ticket for cohesive 1-2 file changes (<150 LOC); split into 2-5 dependency-ordered tickets ONLY across distinct layers or disjoint parallel file sets.
+        Each item in `proposals` MUST be unambiguous for a mid-range coder:
           - `code` (str, e.g. 'Q16')
           - `title` (str)
           - `section_code` (str, default '1')
-          - `depends_on` (list[str], optional)
-          - `files_md` (str)
-          - `do_md` (str)
-          - `done_when_md` (str)
-          - `rationale_md` (str)
+          - `depends_on` (list[str], optional upstream ticket codes)
+          - `files_md` (str: exact Modify/Create file paths + Reference files to mirror; zero parallel write overlap)
+          - `do_md` (str: exact function/type signatures, numbered step-by-step edit plan, pre-decided edge cases, and explicit 'Out-of-Scope / Do NOT Touch' boundaries)
+          - `done_when_md` (str: exact runnable verification command(s) + concrete expected output assertions)
+          - `rationale_md` (str: architectural reason & scope boundary justification)
         Set `auto_promote=True` to immediately create the TODO tickets on the board;
         otherwise `triage_state` becomes `'proposed'` for user approval in the WebUI.
         """

@@ -39,7 +39,7 @@ export const LANE_META: Array<{
   {
     lane: 'triage',
     label: 'Triage & Grill',
-    subtitle: 'Business analysis, spikes & story breakdown',
+    subtitle: 'Frontier Orchestrator — research, spikes & worker-ready specs',
     accentBorder: 'border-purple-500/40',
     badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
     headerBg: 'from-purple-950/50 to-slate-900/80',
@@ -47,7 +47,7 @@ export const LANE_META: Array<{
   {
     lane: 'todo',
     label: 'Todo',
-    subtitle: 'Ready stories picked up into isolated worktrees',
+    subtitle: 'Mid-Tier / Local Worker — bounded stories ready for execution',
     accentBorder: 'border-sky-500/40',
     badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
     headerBg: 'from-sky-950/50 to-slate-900/80',
@@ -55,7 +55,7 @@ export const LANE_META: Array<{
   {
     lane: 'in-progress',
     label: 'In Progress',
-    subtitle: 'Active coding, tests & handoff execution',
+    subtitle: 'Mid-Tier Worker (high/max care) — scoped coding & 2-strike escalation',
     accentBorder: 'border-amber-500/40',
     badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
     headerBg: 'from-amber-950/40 to-slate-900/80',
@@ -63,7 +63,7 @@ export const LANE_META: Array<{
   {
     lane: 'review',
     label: 'Review & QA Gate',
-    subtitle: 'Peer QA, security audit & PR merge gate',
+    subtitle: 'Cross-Vendor Reviewer — adversarial QA, security & merge gate',
     accentBorder: 'border-indigo-500/40',
     badgeClass: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
     headerBg: 'from-indigo-950/50 to-slate-900/80',
@@ -71,7 +71,7 @@ export const LANE_META: Array<{
   {
     lane: 'blocked',
     label: 'Blocked',
-    subtitle: 'Root-cause diagnostics & unblocking',
+    subtitle: 'Frontier Diagnostician — escalated failure root-cause tier',
     accentBorder: 'border-rose-500/40',
     badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
     headerBg: 'from-rose-950/40 to-slate-900/80',

@@ -209,7 +209,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
     "antigravity": [
         {
             "id": "gemini-3.1-pro",
-            "name": "Gemini 3.1 Pro",
+            "name": "Gemini 3.1 Pro (Orchestrator)",
             "tier": "frontier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
@@ -217,15 +217,15 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         },
         {
             "id": "gemini-3.8-flash",
-            "name": "Gemini 3.8 Flash",
+            "name": "Gemini 3.8 Flash (Worker)",
             "tier": "mid-tier",
             "supports_effort": True,
-            "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "high",
         },
         {
             "id": "gemini-2.5-flash-lite",
-            "name": "Gemini 2.5 Flash-Lite",
+            "name": "Gemini 2.5 Flash-Lite (Navigator)",
             "tier": "fast",
             "supports_effort": False,
             "effort_levels": [],
@@ -233,6 +233,30 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         },
     ],
     "claude": [
+        {
+            "id": "claude-opus-5-5",
+            "name": "Claude Opus 5.5 (Orchestrator)",
+            "tier": "frontier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5 (Worker)",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "max",
+        },
+        {
+            "id": "claude-haiku-5-5",
+            "name": "Claude Haiku 5.5 (Navigator <100K)",
+            "tier": "fast",
+            "supports_effort": False,
+            "effort_levels": [],
+            "default_effort": None,
+        },
         {
             "id": "claude-opus-4-6",
             "name": "Claude Opus 4.6",
@@ -247,7 +271,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "claude-haiku-4-5",
@@ -268,6 +292,22 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "default_effort": "high",
         },
         {
+            "id": "kimi-k3",
+            "name": "Kimi K3 (Orchestrator)",
+            "tier": "frontier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high"],
+            "default_effort": "high",
+        },
+        {
+            "id": "kimi-k2.6",
+            "name": "Kimi K2.6 (Terminal Worker)",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high"],
+            "default_effort": "high",
+        },
+        {
             "id": "kimi-k2-instruct",
             "name": "Kimi K2 Instruct",
             "tier": "mid-tier",
@@ -283,7 +323,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "tier": "frontier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "MiniMax-Text-01-Fast",
@@ -295,6 +335,22 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         },
     ],
     "grok": [
+        {
+            "id": "grok-4.7",
+            "name": "Grok 4.7 (Orchestrator / Reviewer)",
+            "tier": "frontier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high"],
+            "default_effort": "high",
+        },
+        {
+            "id": "grok-code-fast-1",
+            "name": "Grok Code Fast 1 (Worker)",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high"],
+            "default_effort": "high",
+        },
         {
             "id": "grok-4-reasoning",
             "name": "Grok 4 Reasoning",
@@ -323,7 +379,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
     "codex": [
         {
             "id": "gpt-5.2-codex",
-            "name": "GPT-5.2 Codex",
+            "name": "GPT-5.2 Codex (Orchestrator)",
             "tier": "frontier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
@@ -331,15 +387,15 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         },
         {
             "id": "o4-mini",
-            "name": "o4-mini Reasoning",
+            "name": "o4-mini Reasoning (Worker / Reviewer)",
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "gpt-4.1-mini",
-            "name": "GPT-4.1 Mini",
+            "name": "GPT-4.1 Mini (Fast)",
             "tier": "fast",
             "supports_effort": False,
             "effort_levels": [],
@@ -348,12 +404,20 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
     ],
     "cursor": [
         {
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5 (Worker)",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "max",
+        },
+        {
             "id": "claude-sonnet-4-6",
             "name": "Claude Sonnet 4.6",
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "gpt-5.2-codex",
@@ -366,12 +430,28 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
     ],
     "opencode": [
         {
-            "id": "claude-sonnet-4-6",
-            "name": "Claude Sonnet 4.6",
+            "id": "qwen3-coder-30b-a3b",
+            "name": "Qwen3-Coder-30B-A3B (Local Worker)",
+            "tier": "mid-tier",
+            "supports_effort": False,
+            "effort_levels": [],
+            "default_effort": None,
+        },
+        {
+            "id": "kimi-k2.6",
+            "name": "Kimi K2.6 (Terminal Worker)",
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "max",
         },
         {
             "id": "kimi-k2.5-thinking",
@@ -387,7 +467,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
     ],
     "a2a": [
@@ -400,12 +480,36 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "default_effort": "high",
         },
         {
+            "id": "kimi-k2.6",
+            "name": "Kimi K2.6 (Terminal Worker)",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high"],
+            "default_effort": "high",
+        },
+        {
+            "id": "qwen3-coder-30b-a3b",
+            "name": "Qwen3-Coder-30B-A3B (Local Worker)",
+            "tier": "mid-tier",
+            "supports_effort": False,
+            "effort_levels": [],
+            "default_effort": None,
+        },
+        {
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5",
+            "tier": "mid-tier",
+            "supports_effort": True,
+            "effort_levels": ["low", "medium", "high", "max"],
+            "default_effort": "max",
+        },
+        {
             "id": "claude-sonnet-4-6",
             "name": "Claude Sonnet 4.6",
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "gemini-3.8-flash",
@@ -413,7 +517,7 @@ PROVIDER_MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
             "tier": "mid-tier",
             "supports_effort": True,
             "effort_levels": ["low", "medium", "high"],
-            "default_effort": "medium",
+            "default_effort": "high",
         },
         {
             "id": "kimi-k2-instruct",
@@ -1016,28 +1120,44 @@ def dispatch_task_via_a2a(
     if ticket["status"] == "review":
         skill_uri = f"skill://{project_slug}/CODE_REVIEW_SKILL.md"
         instruction_text = (
-            f"[A2A Task Dispatch]{model_label} Review ticket {ticket['code']} "
+            f"[A2A Task Dispatch]{model_label} Cross-vendor adversarial review on ticket {ticket['code']} "
             f"(<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) on project '{project_slug}'. "
             f"Load {skill_uri},{skills_clause} use model '{chosen_model or 'mid-tier'}'"
             + (f" (effort={chosen_effort})" if chosen_effort else "")
             + f", call inspect_review_ticket(project_slug='{project_slug}', code='{ticket['code']}'), "
-            f"and submit review_ticket(..., merge_if_clean={merge_if_clean_flag}).{extra_clause}{prompt_guard}"
+            f"verify scope adherence against files_md/done_when_md, and submit review_ticket(..., merge_if_clean={merge_if_clean_flag}).{extra_clause}{prompt_guard}"
         )
     elif ticket["status"] == "triage":
         skill_uri = f"skill://{project_slug}/SKILL.md"
         instruction_text = (
-            f"[A2A Task Dispatch]{model_label} Research & decompose triage ticket {ticket['code']} "
+            f"[A2A Task Dispatch · Frontier Orchestrator]{model_label} Research & decompose triage ticket {ticket['code']} "
             f"(<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) on project '{project_slug}'. "
             f"Read {skill_uri}.{skills_clause} "
+            f"Avoid over-decomposing simple tasks (emit 1 ticket if <150 LOC / 1-2 files; split only across distinct layers or disjoint parallel files). "
+            f"Write every proposed TODO so a mid-range/local worker model can execute it with zero ambiguity: "
+            f"populate exact target + reference paths in files_md, exact function/type signatures + step-by-step edit blueprint + explicit Out-of-Scope boundaries in do_md, "
+            f"and runnable test/verification commands in done_when_md. "
             f"Call claim_triage_ticket and submit_triage_research_findings(..., recommendation='propose-todos', auto_promote={auto_promote_flag}).{extra_clause}{prompt_guard}"
+        )
+    elif ticket["status"] == "blocked":
+        skill_uri = f"skill://{project_slug}/SKILL.md"
+        instruction_text = (
+            f"[A2A Task Dispatch · Frontier Failure-Diagnostician]{model_label} Diagnose & unblock escalated ticket {ticket['code']} "
+            f"(<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) on project '{project_slug}' "
+            f"inside isolated worktree '{worktree_path}' (branch '{ticket.get('branch_name') or ''}'). "
+            f"Connect to MCP at {mcp_url} and read {skill_uri}.{skills_clause} "
+            f"Inspect get_ticket notes/blocked_reason, reproduce the root-cause failure without repeating failed worker loops, "
+            f"and either land the fix (moving to 'review') or repair flawed specs in do_md/done_when_md and return to 'todo'.{extra_clause}{prompt_guard}"
         )
     else:
         skill_uri = f"skill://{project_slug}/SKILL.md"
         instruction_text = (
-            f"[A2A Task Dispatch]{model_label} Work on ticket {ticket['code']} "
+            f"[A2A Task Dispatch · Bounded Execution Worker]{model_label} Work on ticket {ticket['code']} "
             f"(<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) on project '{project_slug}' "
             f"inside isolated worktree '{worktree_path}' (branch '{ticket.get('branch_name') or ''}'). "
-            f"Connect to MCP at {mcp_url} and read {skill_uri}.{skills_clause}{extra_clause}{prompt_guard}"
+            f"Connect to MCP at {mcp_url} and read {skill_uri}.{skills_clause} "
+            f"Follow files_md and do_md strictly without scope creep; if verification in done_when_md fails twice or specs conflict with repo types, "
+            f"stop looping, commit your state, and escalate via update_ticket_progress(..., status='blocked').{extra_clause}{prompt_guard}"
         )
 
     jsonrpc_request = {

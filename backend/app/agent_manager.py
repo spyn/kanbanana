@@ -1423,25 +1423,37 @@ def build_agent_launch_command(
     if ticket.get("status") == "review":
         merge_flag = review_policy == "auto-merge-clean"
         prompt = (
-            f"Review ticket {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
+            f"Cross-vendor adversarial review on ticket {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
             f"on the '{project_slug}' Kanbanana MCP board."
-            f"{skills_txt} Call inspect_review_ticket(project_slug='{project_slug}', code='{ticket['code']}') "
-            f"and submit review_ticket(..., merge_if_clean={merge_flag}).{prompt_guard}"
+            f"{skills_txt} Call inspect_review_ticket(project_slug='{project_slug}', code='{ticket['code']}'), "
+            f"verify done_when_md and scope adherence against files_md, and submit review_ticket(..., merge_if_clean={merge_flag}).{prompt_guard}"
         )
     elif ticket.get("status") == "triage":
         auto_prom = triage_policy == "auto-promote-todo"
         prompt = (
-            f"Triage & break down ticket {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
+            f"[Frontier Orchestrator] Research & decompose triage ticket {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
             f"on the '{project_slug}' Kanbanana MCP board."
-            f"{skills_txt} Call claim_triage_ticket(project_slug='{project_slug}', code='{ticket['code']}', agent_id='{profile['id']}') "
+            f"{skills_txt} Avoid over-decomposing simple changes (propose 1 ticket if 1-2 files / <150 LOC; split only across distinct layers or disjoint parallel files). "
+            f"Every proposed TODO must be self-contained for a mid-range/local worker model: populate exact Modify/Reference paths in files_md, "
+            f"exact function/type signatures + step-by-step edit plan + Out-of-Scope guardrails in do_md, and runnable test commands in done_when_md. "
+            f"Call claim_triage_ticket(project_slug='{project_slug}', code='{ticket['code']}', agent_id='{profile['id']}') "
             f"and submit_triage_research_findings(..., recommendation='propose-todos', auto_promote={auto_prom}).{prompt_guard}"
+        )
+    elif ticket.get("status") == "blocked":
+        prompt = (
+            f"[Frontier Failure-Diagnostician] Diagnose & unblock escalated ticket {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
+            f"on the '{project_slug}' Kanbanana MCP board.{skills_txt} "
+            f"Call get_project_onboarding(project_slug='{project_slug}') and get_ticket(project_slug='{project_slug}', code='{ticket['code']}') "
+            f"to inspect blocked_reason and worker notes, diagnose why verification failed without repeating worker loops, "
+            f"and either land the root-cause fix (-> 'review') or repair flawed specs in do_md/done_when_md (-> 'todo').{prompt_guard}"
         )
     else:
         prompt = (
-            f"Pick up and work on task {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
+            f"[Bounded Execution Worker] Pick up and work on task {ticket['code']} (<untrusted_ticket_spec>{safe_title}</untrusted_ticket_spec>) "
             f"on the '{project_slug}' Kanbanana MCP board.{skills_txt} "
-            f"Call get_project_onboarding(project_slug='{project_slug}') "
-            f"and get_ticket(project_slug='{project_slug}', code='{ticket['code']}') first.{prompt_guard}"
+            f"Call get_project_onboarding(project_slug='{project_slug}') and get_ticket(project_slug='{project_slug}', code='{ticket['code']}') first. "
+            f"Follow files_md and do_md strictly with high care; if verification in done_when_md fails twice or specs contradict repo types, "
+            f"stop looping, commit your branch, and escalate via update_ticket_progress(..., status='blocked').{prompt_guard}"
         )
     if verify_cmd:
         prompt += f" Run verification command `{verify_cmd}` before completion."

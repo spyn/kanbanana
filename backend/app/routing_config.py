@@ -69,91 +69,123 @@ def agents_match_identity(agent_a: str, agent_b: str, profiles: Optional[list[di
 
 
 def build_default_managed_skills() -> list[ManagedSkillSpec]:
-    """Built-in editable role skills served via Kanbanana MCP & HTTP."""
+    """Built-in editable Orchestrator -> Worker -> Cross-Vendor Review -> Escalation role skills."""
     return [
         ManagedSkillSpec(
             id="business-analysis",
-            name="Business Analysis & Story Breakdown",
+            name="Orchestrator Architecture & Worker-Ready Breakdown",
             description=(
-                "Analyze raw feature ideas or epics in `triage`, clarify ambiguities, map affected modules, "
-                "and decompose work into atomic, dependency-ordered sub-stories (`todo` proposals)."
+                "Frontier orchestrator skill for `triage`: resolve architectural trade-offs, avoid over-decomposition, "
+                "and emit crystal-clear, bounded `todo` specifications sized for mid-range or local worker models."
             ),
             lane_tags=["triage"],
             built_in=True,
             content_md=(
                 "---\n"
                 "name: business-analysis\n"
-                "description: Analyze triage ideas and break epics into small, dependency-ordered sub-stories.\n"
+                "description: Frontier orchestrator skill that decomposes triage items into unambiguous, bounded specs for mid-range worker models.\n"
+                "recommended_model_tier: frontier (claude-opus-5-5 | grok-4.7 | gemini-3.1-pro | gpt-5.2-codex | kimi-k3)\n"
                 "---\n\n"
-                "# Business Analysis & Story Breakdown Skill (`triage`)\n\n"
-                "1. **Context & Prior Art**: Call `get_project_onboarding` and `search_board` before proposing work so duplicate or previously rejected ideas are caught early.\n"
-                "2. **Clarify Ambiguities**: If core acceptance criteria or product trade-offs are unclear, call `ask_triage_questions` to surface crisp options to the human operator.\n"
-                "3. **Vertical Story Slicing**: Break large epics into 2–6 small, independently testable stories with:\n"
-                "   - Explicit `code`, `title`, and `section_code`\n"
-                "   - Minimal file blast radius in `files_md` (to avoid multi-agent merge conflicts)\n"
-                "   - Concrete implementation steps in `do_md` and measurable acceptance checks in `done_when_md`\n"
-                "   - Explicit `depends_on` ordering where foundational schema/API work precedes UI/integration stories\n"
-                "4. **Submit Structured Breakdown**: Call `submit_triage_research_findings(..., recommendation='propose-todos', proposals=[...])` honoring the lane's `auto_promote` policy.\n"
+                "# Orchestrator Architecture & Worker-Ready Story Breakdown (`triage`)\n\n"
+                "You are the **Frontier Orchestrator / Architect**. Downstream `todo` tickets will be executed by **mid-range or local worker models** (`claude-sonnet-5-5`, `gemini-3.8-flash`, `kimi-k2.6`, `grok-code-fast-1`, `o4-mini`, `qwen3-coder-30b-a3b`). Planning errors cascade; ambiguous delegation causes cheap workers to guess wrong and burn tokens twice.\n\n"
+                "## 1. Context, Prior Art & Clarifying Questions\n"
+                "1. Call `get_project_onboarding` and `search_board` first to catch duplicate tickets or ideas already logged in *Measured & Rejected*.\n"
+                "2. Offload high-volume file search/navigation to cheap/fast subagents (`haiku` / `flash_lite`, <100K prompt tokens) if available; keep architectural synthesis in your main context.\n"
+                "3. **Zero Unresolved Trade-Offs**: Never hand an open product or architectural question to a worker. If requirements are ambiguous, call `ask_triage_questions` (`triage_state='needs-info'`) so the human operator decides before sub-tickets are created.\n\n"
+                "## 2. Anti-Over-Decomposition Rule (Right-Sizing)\n"
+                "- **More subtasks ≠ higher accuracy**: Over-splitting simple changes multiplies context/orchestration overhead ~3.4× and hurts accuracy.\n"
+                "- **1 Ticket Rule**: If the change fits cleanly in 1–2 files (< ~150 LOC) with one cohesive concern, propose **1 single well-specified `todo` ticket**.\n"
+                "- **2–5 Ticket Split**: Split into multiple dependency-ordered `todo` stories ONLY when work spans distinct layers (e.g., DB/API contract first $\\rightarrow$ UI/consumer second) or enables parallel execution across **strictly disjoint file sets**.\n\n"
+                "## 3. Mandatory Mid-Range Worker Specification Contract\n"
+                "Every item in `proposals` MUST be self-contained so a mid-range coder can execute it without repo-wide exploration:\n"
+                "1. **`files_md` (Exact File Blast Radius)**:\n"
+                "   - List exact relative file paths to **Modify** / **Create**, plus 1–2 **Reference** files whose patterns/types the worker should mirror.\n"
+                "   - Check `check_file_conflicts` so parallel unblocked stories never write to the same file.\n"
+                "2. **`do_md` (Architect $\\rightarrow$ Editor Blueprint)**:\n"
+                "   - **Exact Symbols & Signatures**: Name the exact functions, classes, endpoints, SQL columns, or React props to add/change, including parameter and return types.\n"
+                "   - **Ordered Edit Plan**: Numbered step-by-step changes anchored to existing symbols/sections.\n"
+                "   - **Pre-Decided Edge Cases & Invariants**: Explicitly state error codes, empty/null handling, lock rules, and backwards-compatibility constraints.\n"
+                "   - **Explicit Out-of-Scope (`Do NOT Touch`)**: State what the worker must NOT refactor, rename, or add.\n"
+                "3. **`done_when_md` (Deterministic Verification Gate)**:\n"
+                "   - Exact runnable command(s) (`uv run pytest -k ...`, `tsc --noEmit`, `npm run build`, `cargo test ...`) and concrete input $\\rightarrow$ expected output assertions.\n"
+                "4. **`depends_on` & `rationale_md`**:\n"
+                "   - Explicit upstream ticket codes and a 1–2 sentence architectural rationale.\n\n"
+                "## 4. Submit Structured Breakdown\n"
+                "- Call `submit_triage_research_findings(..., recommendation='propose-todos', proposals=[...])` (or `'not-worth-it'` / `'attach-to-existing'` when new code shouldn't be built), honoring the lane's `auto_promote` policy.\n"
             ),
         ),
         ManagedSkillSpec(
             id="triage-research-scan",
-            name="Technical Spike & Architecture Scan",
+            name="Orchestrator Technical Spike & Scope Gate",
             description=(
-                "Evaluate technical feasibility, performance trade-offs, external references, and file overlap risks "
-                "during `triage` investigations."
+                "Evaluate architectural feasibility, know what NOT to build (`not-worth-it`), check concurrent file "
+                "overlaps, and ground specifications in exact codebase types during `triage`."
             ),
             lane_tags=["triage"],
             built_in=True,
             content_md=(
                 "---\n"
                 "name: triage-research-scan\n"
-                "description: Perform technical feasibility spikes and codebase architecture scans on triage items.\n"
+                "description: Frontier technical feasibility spike, scope gate, and symbol mapping for triage items.\n"
+                "recommended_model_tier: frontier\n"
                 "---\n\n"
-                "# Technical Spike & Architecture Scan (`triage`)\n\n"
-                "1. Inspect affected modules, data models, and existing tests before estimating scope.\n"
-                "2. Check `check_file_conflicts` against active `in-progress` worktrees.\n"
-                "3. Record concrete architectural trade-offs, performance impact, and risk notes via `submit_triage_research_findings`.\n"
+                "# Orchestrator Technical Spike & Scope Gate (`triage`)\n\n"
+                "1. **Know What NOT to Build**: Verify whether the proposed idea actually solves a measured bottleneck or user need on this architecture. If ROI is negative or superseded, close with `submit_triage_research_findings(..., recommendation='not-worth-it')` so workers never waste tokens on it.\n"
+                "2. **Cheap Navigation, Frontier Judgment**: Use targeted search (or `<100K` token fast navigator subagents) to locate exact file paths, struct/interface definitions, and existing test harnesses.\n"
+                "3. **Conflict & Blast-Radius Check**: Call `check_file_conflicts` against active `in-progress` worktrees and record exact symbols, performance trade-offs, and invariants so downstream worker specs require zero guesswork.\n"
             ),
         ),
         ManagedSkillSpec(
             id="implementation-worker",
-            name="Isolated Worktree Implementation",
+            name="Bounded-Scope Implementation & Escalation Worker",
             description=(
-                "Execute scoped software engineering tasks inside an isolated git worktree (`board/<code>`), "
-                "respecting FIFO resource locks and running verification suites before moving to `review`."
+                "Mid-range / local worker skill (`todo` & `in-progress`): execute well-specified tasks at high/max care "
+                "inside an isolated git worktree, and escalate to `blocked` instead of looping on deep failures."
             ),
             lane_tags=["todo", "in-progress"],
             built_in=True,
             content_md=(
                 "---\n"
                 "name: implementation-worker\n"
-                "description: Implement scoped board tickets cleanly inside an isolated git worktree.\n"
+                "description: Execute bounded-scope tickets cleanly at high care and escalate rather than looping on hard failures.\n"
+                "recommended_model_tier: mid-tier (claude-sonnet-5-5 | gemini-3.8-flash | kimi-k2.6 | grok-code-fast-1 | o4-mini | qwen3-coder-30b-a3b)\n"
                 "---\n\n"
-                "# Isolated Worktree Implementation (`todo` / `in-progress`)\n\n"
-                "1. Always work inside the ticket's dedicated git worktree (`board/<code>`); never commit directly to `main`.\n"
-                "2. Check `check_file_conflicts` and acquire any required shared environment/GPU locks via `acquire_lock` before running exclusive suites.\n"
-                "3. Implement the specification in `do_md`, satisfy every check in `done_when_md`, run the project verification command, commit cleanly, and call `update_ticket_progress(..., status='review', release_locks=True)`.\n"
+                "# Bounded-Scope Implementation & Escalation Worker (`todo` / `in-progress`)\n\n"
+                "You are the **Bounded Execution Worker** executing an Orchestrator-authored specification with maximum precision and care.\n\n"
+                "1. **Worktree & Lock Discipline**:\n"
+                "   - Always work inside your ticket's dedicated git worktree (`board/<code>`); never commit directly to `main`.\n"
+                "   - Check `check_file_conflicts` and acquire any required shared environment/GPU locks via `acquire_lock` before running exclusive suites.\n"
+                "2. **Strict Scope Adherence (No Unrequested Refactoring)**:\n"
+                "   - Read ONLY the target and reference files listed in `files_md` plus direct imports — do not dump half the repo into context.\n"
+                "   - Implement the exact signatures, steps, and invariants in `do_md`, and obey all **Out-of-Scope / Do NOT Touch** boundaries.\n"
+                "3. **Run Deterministic Verification**:\n"
+                "   - Run every test, typecheck, and build command specified in `done_when_md`.\n"
+                "   - When green, commit cleanly and call `update_ticket_progress(..., status='review', release_locks=True)` with commit SHA and measured test output.\n"
+                "4. **2-Strike Anti-Loop Escalation Rule (`todo`/`in-progress` $\\rightarrow$ `blocked`)**:\n"
+                "   - Writing code and tests is mid-tier work; diagnosing complex failing runs or architectural mismatches is orchestrator-tier work.\n"
+                "   - If verification fails **twice** after targeted fixes, OR if `do_md` contradicts actual repository types/APIs, **STOP LOOPING IMMEDIATELY**.\n"
+                "   - Commit your work-in-progress branch, release held locks, and call `update_ticket_progress(..., status='blocked', blocked_reason='Escalated to Frontier Diagnostician: <concise failure>', note_md='<exact command, traceback, and hypotheses tried>', release_locks=True)`.\n"
             ),
         ),
         ManagedSkillSpec(
             id="qa-verification",
-            name="QA & Acceptance Criteria Verification",
+            name="Cross-Vendor QA & Scope Verification",
             description=(
-                "Verify every `done_when_md` requirement, run unit/build checks, test boundary conditions, "
-                "and catch regressions on `review` tickets."
+                "Adversarial cross-vendor QA on `review` tickets: verify every `done_when_md` check, catch same-family "
+                "blind spots and scope creep outside `files_md`, and run regression suites."
             ),
             lane_tags=["review"],
             built_in=True,
             content_md=(
                 "---\n"
                 "name: qa-verification\n"
-                "description: Run QA, acceptance criteria checks, and regression verification on review tickets.\n"
+                "description: Adversarial cross-vendor QA, scope check, and acceptance criteria verification on review tickets.\n"
+                "recommended_model_tier: mid-to-frontier cross-vendor (grok-4.7 | claude-sonnet-5-5 | gemini-3.8-flash | o4-mini | kimi-k2.6)\n"
                 "---\n\n"
-                "# QA & Acceptance Criteria Verification (`review`)\n\n"
-                "1. Compare every bullet in the ticket's `done_when_md` against the actual git diff in `inspect_review_ticket`.\n"
-                "2. Execute the project's test/typecheck/build verification commands in the ticket worktree.\n"
-                "3. Check edge cases, null/empty states, error handling, and backwards compatibility; report any gap in `code_issues`.\n"
+                "# Cross-Vendor QA & Acceptance Criteria Verification (`review`)\n\n"
+                "1. **Adversarial Reading**: Assume the implementer model had blind spots. Compare every bullet in `do_md` and `done_when_md` against the actual git diff from `inspect_review_ticket`.\n"
+                "2. **Blast-Radius & Scope Check**: Flag unrequested edits outside `files_md`, missing edge-case guards, or silently skipped requirements in `code_issues`.\n"
+                "3. **Independent Verification**: Execute the project's test/typecheck/build commands inside the ticket worktree and verify zero regressions.\n"
             ),
         ),
         ManagedSkillSpec(
@@ -178,47 +210,74 @@ def build_default_managed_skills() -> list[ManagedSkillSpec]:
         ),
         ManagedSkillSpec(
             id="root-cause-unblocker",
-            name="Blocked Ticket Root-Cause Diagnostics",
+            name="Frontier Failure-Diagnostician & Escalation Resolver",
             description=(
-                "Diagnose failing tests, dependency deadlocks, or ambiguous specs on `blocked` tickets "
-                "and produce a concrete unblocking fix or escalation note."
+                "Orchestrator-tier diagnostics on `blocked` tickets: interpret why tests failed when a mid-tier worker "
+                "escalated, fix the root cause or repair flawed specs, and unblock execution."
             ),
             lane_tags=["blocked"],
             built_in=True,
             content_md=(
                 "---\n"
                 "name: root-cause-unblocker\n"
-                "description: Diagnose blocked tickets, reproduce root causes, and unblock execution.\n"
+                "description: Frontier failure-diagnostician skill for escalated blocked tickets.\n"
+                "recommended_model_tier: frontier (claude-opus-5-5 | grok-4.7 | gemini-3.1-pro | gpt-5.2-codex | kimi-k3)\n"
                 "---\n\n"
-                "# Blocked Ticket Root-Cause Diagnostics (`blocked`)\n\n"
-                "1. Read `blocked_reason` and recent `ticket_notes` via `get_ticket`.\n"
-                "2. Reproduce the build/test failure or dependency conflict inside the ticket worktree.\n"
-                "3. Apply a minimal fix (moving back to `in-progress`/`review`) or post a crisp root-cause options note on the ticket.\n"
+                "# Frontier Failure-Diagnostician & Escalation Resolver (`blocked`)\n\n"
+                "Mid-tier workers escalate to `blocked` when tests fail repeatedly or when a ticket specification conflicts with repository reality. Your job is high-reasoning root-cause diagnosis.\n\n"
+                "1. **Inspect Escalation Context**: Call `get_ticket` to read `blocked_reason`, worker `notes`, and `files_md`, then inspect `git status` / `git diff` in the ticket worktree.\n"
+                "2. **Diagnose Root Cause (Don't Repeat Worker Loops)**: Reproduce the exact failing test or build error and identify the underlying invariant, type, concurrency, or architecture mismatch.\n"
+                "3. **Resolve or Re-Specify**:\n"
+                "   - If the fix is localized, land the surgical root-cause fix in the worktree, pass all `done_when_md` checks, and move the ticket to `review`.\n"
+                "   - If the original specification was flawed, update `do_md` / `files_md` / `done_when_md` with accurate signatures and concrete steps, post an architectural note, and transition the ticket back to `todo` for a mid-range worker.\n"
             ),
         ),
     ]
 
 
 def build_default_lane_configs() -> dict[str, LaneConfig]:
-    """Sensible out-of-the-box Global Agent × Lane defaults."""
+    """
+    Out-of-the-box Orchestrator -> Worker -> Cross-Vendor Reviewer -> Frontier Escalation defaults:
+      - `triage`: Frontier Orchestrators (`high` effort) for breadth, repo judgment & worker-ready specs
+      - `todo` / `in-progress`: Mid-range / local Workers (`max`/`high` effort) for cost-efficient bounded execution
+      - `review`: Cross-vendor Reviewers (`prevent_self_review=True`) to catch model-family blind spots
+      - `blocked`: Frontier Failure-Diagnosticians (`high` effort) for escalated test/architecture failures
+    """
+    worker_instructions = (
+        "Follow files_md and do_md strictly with high care; do not refactor out-of-scope files. "
+        "If verification fails twice, stop looping and escalate to 'blocked' with the exact traceback."
+    )
+    orchestrator_instructions = (
+        "Avoid over-decomposing simple tasks (1 ticket if 1-2 files / <150 LOC). "
+        "Write mid-range-worker-ready specs: exact paths in files_md, exact signatures + ordered steps + Out-of-Scope in do_md, "
+        "and runnable verification commands in done_when_md."
+    )
     return {
         "triage": LaneConfig(
             inherit_global=True,
             auto_dispatch=False,
             preferred_agent="claude-code",
-            fallback_agent="antigravity",
+            fallback_agent="grok-cli",
             prevent_self_review=False,
             triage_breakdown_policy="stage-for-approval",
             review_merge_policy="auto-merge-clean",
-            default_skills=["business-analysis"],
+            default_skills=["business-analysis", "triage-research-scan"],
             agent_rules={
                 "claude-code": AgentLaneRule(
                     agent_key="claude-code",
                     agent_label="Claude Code",
-                    model="claude-sonnet-4-6",
+                    model="claude-opus-5-5",
                     effort="high",
                     skills=["business-analysis", "triage-research-scan"],
-                    custom_instructions="Decompose epics into small, dependency-ordered sub-stories with minimal file overlap.",
+                    custom_instructions=orchestrator_instructions,
+                ),
+                "grok-cli": AgentLaneRule(
+                    agent_key="grok-cli",
+                    agent_label="Grok CLI",
+                    model="grok-4.7",
+                    effort="high",
+                    skills=["business-analysis", "triage-research-scan"],
+                    custom_instructions=orchestrator_instructions,
                 ),
                 "antigravity": AgentLaneRule(
                     agent_key="antigravity",
@@ -226,61 +285,139 @@ def build_default_lane_configs() -> dict[str, LaneConfig]:
                     model="gemini-3.1-pro",
                     effort="high",
                     skills=["business-analysis", "triage-research-scan"],
-                ),
-            },
-        ),
-        "todo": LaneConfig(
-            inherit_global=True,
-            auto_dispatch=False,
-            preferred_agent="antigravity",
-            fallback_agent="claude-code",
-            prevent_self_review=False,
-            default_skills=["implementation-worker"],
-            agent_rules={
-                "antigravity": AgentLaneRule(
-                    agent_key="antigravity",
-                    agent_label="Google Antigravity (agy)",
-                    model="gemini-3.1-pro",
-                    effort="high",
-                    skills=["implementation-worker"],
-                ),
-                "claude-code": AgentLaneRule(
-                    agent_key="claude-code",
-                    agent_label="Claude Code",
-                    model="claude-opus-4-6",
-                    effort="high",
-                    skills=["implementation-worker"],
+                    custom_instructions=orchestrator_instructions,
                 ),
                 "codex-cli": AgentLaneRule(
                     agent_key="codex-cli",
                     agent_label="OpenAI Codex CLI",
                     model="gpt-5.2-codex",
                     effort="high",
+                    skills=["business-analysis", "triage-research-scan"],
+                    custom_instructions=orchestrator_instructions,
+                ),
+                "kimi-code": AgentLaneRule(
+                    agent_key="kimi-code",
+                    agent_label="Kimi Code",
+                    model="kimi-k3",
+                    effort="high",
+                    skills=["business-analysis", "triage-research-scan"],
+                    custom_instructions=orchestrator_instructions,
+                ),
+            },
+        ),
+        "todo": LaneConfig(
+            inherit_global=True,
+            auto_dispatch=False,
+            preferred_agent="kimi-code",
+            fallback_agent="antigravity",
+            prevent_self_review=False,
+            default_skills=["implementation-worker"],
+            agent_rules={
+                "kimi-code": AgentLaneRule(
+                    agent_key="kimi-code",
+                    agent_label="Kimi Code",
+                    model="kimi-k2.6",
+                    effort="high",
                     skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "antigravity": AgentLaneRule(
+                    agent_key="antigravity",
+                    agent_label="Google Antigravity (agy)",
+                    model="gemini-3.8-flash",
+                    effort="high",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "claude-code": AgentLaneRule(
+                    agent_key="claude-code",
+                    agent_label="Claude Code",
+                    model="claude-sonnet-5-5",
+                    effort="max",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "grok-cli": AgentLaneRule(
+                    agent_key="grok-cli",
+                    agent_label="Grok CLI",
+                    model="grok-code-fast-1",
+                    effort="high",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "codex-cli": AgentLaneRule(
+                    agent_key="codex-cli",
+                    agent_label="OpenAI Codex CLI",
+                    model="o4-mini",
+                    effort="high",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "opencode": AgentLaneRule(
+                    agent_key="opencode",
+                    agent_label="OpenCode (Local Worker)",
+                    model="qwen3-coder-30b-a3b",
+                    effort="",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
                 ),
             },
         ),
         "in-progress": LaneConfig(
             inherit_global=True,
             auto_dispatch=False,
-            preferred_agent="antigravity",
-            fallback_agent="claude-code",
+            preferred_agent="kimi-code",
+            fallback_agent="antigravity",
             prevent_self_review=False,
             default_skills=["implementation-worker"],
             agent_rules={
+                "kimi-code": AgentLaneRule(
+                    agent_key="kimi-code",
+                    agent_label="Kimi Code",
+                    model="kimi-k2.6",
+                    effort="high",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
                 "antigravity": AgentLaneRule(
                     agent_key="antigravity",
                     agent_label="Google Antigravity (agy)",
-                    model="gemini-3.1-pro",
+                    model="gemini-3.8-flash",
                     effort="high",
                     skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
                 ),
                 "claude-code": AgentLaneRule(
                     agent_key="claude-code",
                     agent_label="Claude Code",
-                    model="claude-sonnet-4-6",
+                    model="claude-sonnet-5-5",
+                    effort="max",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "grok-cli": AgentLaneRule(
+                    agent_key="grok-cli",
+                    agent_label="Grok CLI",
+                    model="grok-code-fast-1",
                     effort="high",
                     skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "codex-cli": AgentLaneRule(
+                    agent_key="codex-cli",
+                    agent_label="OpenAI Codex CLI",
+                    model="o4-mini",
+                    effort="high",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
+                ),
+                "opencode": AgentLaneRule(
+                    agent_key="opencode",
+                    agent_label="OpenCode (Local Worker)",
+                    model="qwen3-coder-30b-a3b",
+                    effort="",
+                    skills=["implementation-worker"],
+                    custom_instructions=worker_instructions,
                 ),
             },
         ),
@@ -296,23 +433,37 @@ def build_default_lane_configs() -> dict[str, LaneConfig]:
                 "grok-cli": AgentLaneRule(
                     agent_key="grok-cli",
                     agent_label="Grok CLI",
-                    model="grok-4-reasoning",
+                    model="grok-4.7",
                     effort="high",
                     skills=["qa-verification", "security-code-review"],
-                    custom_instructions="Run QA acceptance checks and strict security audit; approve & merge only when 0 issues remain.",
+                    custom_instructions="Cross-vendor adversarial review: verify done_when_md, scope adherence, and security invariants; merge only on 0 issues.",
                 ),
                 "claude-code": AgentLaneRule(
                     agent_key="claude-code",
                     agent_label="Claude Code",
-                    model="claude-sonnet-4-6",
-                    effort="medium",
+                    model="claude-sonnet-5-5",
+                    effort="high",
                     skills=["qa-verification", "security-code-review"],
                 ),
                 "antigravity": AgentLaneRule(
                     agent_key="antigravity",
                     agent_label="Google Antigravity (agy)",
                     model="gemini-3.8-flash",
-                    effort="medium",
+                    effort="high",
+                    skills=["qa-verification", "security-code-review"],
+                ),
+                "codex-cli": AgentLaneRule(
+                    agent_key="codex-cli",
+                    agent_label="OpenAI Codex CLI",
+                    model="o4-mini",
+                    effort="high",
+                    skills=["qa-verification", "security-code-review"],
+                ),
+                "kimi-code": AgentLaneRule(
+                    agent_key="kimi-code",
+                    agent_label="Kimi Code",
+                    model="kimi-k2.6",
+                    effort="high",
                     skills=["qa-verification", "security-code-review"],
                 ),
             },
@@ -321,21 +472,43 @@ def build_default_lane_configs() -> dict[str, LaneConfig]:
             inherit_global=True,
             auto_dispatch=False,
             preferred_agent="claude-code",
-            fallback_agent="kimi-code",
+            fallback_agent="grok-cli",
             prevent_self_review=False,
             default_skills=["root-cause-unblocker"],
             agent_rules={
                 "claude-code": AgentLaneRule(
                     agent_key="claude-code",
                     agent_label="Claude Code",
-                    model="claude-opus-4-6",
+                    model="claude-opus-5-5",
+                    effort="high",
+                    skills=["root-cause-unblocker"],
+                    custom_instructions="Frontier Failure-Diagnostician: diagnose root cause of escalated worker failures without looping; fix or rewrite spec.",
+                ),
+                "grok-cli": AgentLaneRule(
+                    agent_key="grok-cli",
+                    agent_label="Grok CLI",
+                    model="grok-4.7",
+                    effort="high",
+                    skills=["root-cause-unblocker"],
+                ),
+                "antigravity": AgentLaneRule(
+                    agent_key="antigravity",
+                    agent_label="Google Antigravity (agy)",
+                    model="gemini-3.1-pro",
+                    effort="high",
+                    skills=["root-cause-unblocker"],
+                ),
+                "codex-cli": AgentLaneRule(
+                    agent_key="codex-cli",
+                    agent_label="OpenAI Codex CLI",
+                    model="gpt-5.2-codex",
                     effort="high",
                     skills=["root-cause-unblocker"],
                 ),
                 "kimi-code": AgentLaneRule(
                     agent_key="kimi-code",
                     agent_label="Kimi Code",
-                    model="kimi-k2.5-thinking",
+                    model="kimi-k3",
                     effort="high",
                     skills=["root-cause-unblocker"],
                 ),
@@ -799,12 +972,44 @@ def resolve_agent_lane_plan(
     chosen_model = (explicit_model or "").strip()
     if not chosen_model and matched_rule:
         chosen_model = str(matched_rule.get("model") or "").strip()
-    if not chosen_model and profile:
-        chosen_model = str(profile.get("default_model") or "").strip()
 
     chosen_effort = (explicit_effort or "").strip()
     if not chosen_effort and matched_rule:
         chosen_effort = str(matched_rule.get("effort") or "").strip()
+
+    # Tier-aware Orchestrator -> Worker fallback when profile has no explicit agent_rule
+    if profile and not chosen_model:
+        sup_models = list(
+            profile.get("supported_models")
+            or ((profile.get("a2a_card") or {}).get("supported_models"))
+            or []
+        )
+        preferred_tiers = (
+            ("frontier", "mid-tier")
+            if norm_lane in ("triage", "blocked")
+            else ("mid-tier", "fast", "frontier")
+        )
+        picked_spec: Optional[dict[str, Any]] = None
+        for tier_name in preferred_tiers:
+            picked_spec = next(
+                (m for m in sup_models if isinstance(m, dict) and m.get("tier") == tier_name),
+                None,
+            )
+            if picked_spec:
+                break
+        if picked_spec and picked_spec.get("id"):
+            chosen_model = str(picked_spec["id"]).strip()
+            if not chosen_effort and picked_spec.get("supports_effort"):
+                eff_levels = list(picked_spec.get("effort_levels") or [])
+                if norm_lane in ("todo", "in-progress") and "max" in eff_levels:
+                    chosen_effort = "max"
+                elif "high" in eff_levels:
+                    chosen_effort = "high"
+                else:
+                    chosen_effort = str(picked_spec.get("default_effort") or "").strip()
+        if not chosen_model:
+            chosen_model = str(profile.get("default_model") or "").strip()
+
     if not chosen_effort and profile and profile.get("supports_effort"):
         chosen_effort = str(profile.get("default_effort") or "").strip()
 

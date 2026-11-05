@@ -395,22 +395,38 @@ export default function App() {
     }
     const models = prof.supported_models || prof.a2a_card?.supported_models || []
     let chosenSpec = models[0]
-    if (ticketStatus === 'review') {
-      chosenSpec = models.find((m) => m.tier === 'mid-tier') || models[0]
+    if (ticketStatus === 'triage' || ticketStatus === 'blocked') {
+      chosenSpec =
+        models.find((m) => m.tier === 'frontier') ||
+        models.find((m) => m.id === prof.default_model) ||
+        models[0]
+    } else if (ticketStatus === 'todo' || ticketStatus === 'in-progress' || ticketStatus === 'review') {
+      chosenSpec =
+        models.find((m) => m.tier === 'mid-tier') ||
+        models.find((m) => m.tier === 'fast') ||
+        models[0]
     } else if (prof.default_model) {
       chosenSpec = models.find((m) => m.id === prof.default_model) || models[0]
     }
     if (chosenSpec) {
       setClaimModel(chosenSpec.id)
       if (chosenSpec.supports_effort) {
-        setClaimEffort(chosenSpec.default_effort || chosenSpec.effort_levels?.[0] || 'medium')
+        const levels = chosenSpec.effort_levels || []
+        const isWorkerLane = ticketStatus === 'todo' || ticketStatus === 'in-progress'
+        const preferredEffort =
+          isWorkerLane && levels.includes('max')
+            ? 'max'
+            : levels.includes('high')
+              ? 'high'
+              : chosenSpec.default_effort || levels[0] || 'high'
+        setClaimEffort(preferredEffort)
       } else {
         setClaimEffort('')
       }
     } else {
       const fallbackModel = prof.default_model || prof.a2a_card?.default_model || ''
       setClaimModel(fallbackModel)
-      setClaimEffort(prof.supports_effort ? prof.default_effort || 'medium' : '')
+      setClaimEffort(prof.supports_effort ? prof.default_effort || 'high' : '')
     }
   }
 
