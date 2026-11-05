@@ -312,3 +312,17 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+
+# SQLite database runtime data
+*.db
+*.db-wal
+*.db-shm
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
+
+# Private project configurations & research docs
+configs/projects/allpaca.json
+docs/CURRENT_STATE/
+.agents/skills/allpaca-code-review/
+

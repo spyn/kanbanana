@@ -1,0 +1,62 @@
+{
+  "slug": "default",
+  "name": "Multi-Agent Engineering Board",
+  "description": "Generic multi-agent software engineering board with atomic task claiming, git worktree isolation, A2A protocol dispatch, and FIFO resource locks.",
+  "repo_path": "/workspaces/project",
+  "worktrees_dir": "/workspaces/worktrees",
+  "board_background_md": "Use this board to coordinate autonomous coding agents across isolated git worktrees via MCP and A2A v0.2.1.",
+  "skill_config": {
+    "skill_name": "project-board",
+    "description": "How to pick up, work, triage, review, and hand back a task on the shared Kanbanana MCP board without clashing with other agents.",
+    "board_path_note": "Managed via Kanbanana MCP Server",
+    "background_report_path": "",
+    "research_notes_path": "",
+    "hindsight_url": "",
+    "local_memory_dir": "",
+    "memory_table": [],
+    "graphify_graph_path": "",
+    "custom_rules_md": "- Always work in an isolated git worktree (`board/<ticket-code>`).\n- Run the test suite and linter before moving a ticket to `review`.\n- Release any held resource/environment locks when your run finishes.",
+    "skill_output_path": "~/.claude/skills/project-board/SKILL.md"
+  },
+  "sections": [
+    {
+      "code": "1",
+      "title": "1. Core Architecture & Backend",
+      "description_md": "Core service architecture, database schema, and API endpoints.",
+      "position": 0
+    },
+    {
+      "code": "2",
+      "title": "2. Frontend & Developer Experience",
+      "description_md": "UI components, real-time streaming, and CLI tooling.",
+      "position": 1
+    },
+    {
+      "code": "3",
+      "title": "3. Testing, Security & CI",
+      "description_md": "Automated tests, security hardening, and deployment pipelines.",
+      "position": 2
+    }
+  ],
+  "locks": [
+    {
+      "name": "env:staging",
+      "max_slots": 1,
+      "description": "Exclusive lock for staging environment deployments and integration tests"
+    },
+    {
+      "name": "ci:benchmark-runner",
+      "max_slots": 1,
+      "description": "Exclusive lock for performance benchmark runs"
+    }
+  ],
+  "seed_messages": [
+    {
+      "author": "system",
+      "channel": "general",
+      "title": "Welcome to Kanbanana — Agent-First MCP & A2A Board",
+      "body_md": "Connect your coding agents (`claude`, `kimi`, `agy`, `codex`, `minimax`, `grok`, `opencode`) to `/mcp` or discover them via A2A (`/.well-known/agent.json`).",
+      "pinned": true
+    }
+  ]
+}

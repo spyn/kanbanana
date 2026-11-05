@@ -1,0 +1,15 @@
+.git
+node_modules
+frontend/node_modules
+frontend/dist
+backend/.venv
+backend/.pytest_cache
+backend/data/*.db*
+**/__pycache__
+*.pyc
+
+# Exclude private docs & local configs from Docker context
+docs/CURRENT_STATE
+configs/projects/allpaca.json
+.agents/skills/allpaca-code-review
+

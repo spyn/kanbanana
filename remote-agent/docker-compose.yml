@@ -1,0 +1,40 @@
+services:
+  kanbanana-remote-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kanbanana-remote-agent
+    ports:
+      - "${A2A_PORT:-8081}:8081"
+    environment:
+      # Agent identity & provider (kimi | claude | antigravity | minimax | grok | codex | opencode)
+      - A2A_AGENT_PROVIDER=${A2A_AGENT_PROVIDER:-kimi}
+      - A2A_AGENT_NAME=${A2A_AGENT_NAME:-Kimi Code Remote Worker}
+      - A2A_AGENT_CLI=${A2A_AGENT_CLI:-kimi}
+      - A2A_AGENT_DEFAULT_ARGS=${A2A_AGENT_DEFAULT_ARGS:-}
+      - A2A_PORT=8081
+      # Public URL that the central Kanbanana server uses to reach this agent
+      - A2A_PUBLIC_URL=${A2A_PUBLIC_URL:-http://localhost:8081}
+      # Central Kanbanana server URL (for auto-wiring MCP & downloading SKILL.md + CODE_REVIEW_SKILL.md)
+      - KANBANANA_URL=${KANBANANA_URL:-${KANBANANNA_URL:-http://host.docker.internal:8765}}
+      - KANBANANA_PROJECT_SLUG=${KANBANANA_PROJECT_SLUG:-${KANBANANNA_PROJECT_SLUG:-default}}
+      # Inside-container paths
+      - A2A_CONFIG_DIR=/agent-config
+      - A2A_WORKSPACE_DIR=/workspaces/project
+      - A2A_WORKTREES_DIR=/workspaces/worktrees
+      - A2A_AUTO_SPAWN_CLI=${A2A_AUTO_SPAWN_CLI:-1}
+    volumes:
+      # 1. Mount the remote host's agent config folder (e.g. ~/.kimi, ~/.claude, ~/.antigravity)
+      #    On startup, the bridge automatically writes mcp.json, SKILL.md, CODE_REVIEW_SKILL.md,
+      #    and .well-known/agent.json into this directory.
+      - ${HOST_AGENT_CONFIG_DIR:-~/.kimi}:/agent-config:rw
+
+      # 2. Mount the remote host's Git repository workspace & worktrees directory
+      - ${HOST_WORKSPACE_PATH:-.}:/workspaces/project:rw
+      - ${HOST_WORKTREES_PATH:-../kanbanana-worktrees}:/workspaces/worktrees:rw
+
+      # 3. Optional: Mount host CLI binaries if installed on the remote host (e.g. ~/.local/bin)
+      # - ~/.local/bin:/usr/local/bin:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

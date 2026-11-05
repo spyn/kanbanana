@@ -1,0 +1,47 @@
+services:
+  kanbanana:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kanbanana
+    ports:
+      - "${KANBANANA_BIND_IP:-127.0.0.1}:8765:8765"
+    environment:
+      - KANBANANA_DB_PATH=/app/backend/data/kanbanana.db
+      - KANBANANA_CONFIGS_DIR=/app/configs/projects
+      - KANBANANA_DEFAULT_PROJECT=${KANBANANA_DEFAULT_PROJECT:-default}
+      - KANBANANA_AGENT_CONFIGS_DIR=/agent-configs
+      - KANBANANA_STRICT_CONFIG_ROOT=${KANBANANA_STRICT_CONFIG_ROOT:-1}
+      - KANBANANA_WORKSPACE_DIR=/workspaces/project
+      - KANBANANA_WORKTREES_DIR=/workspaces/worktrees
+      - KANBANANA_API_TOKEN=${KANBANANA_API_TOKEN:-}
+      - KANBANANA_CORS_ORIGINS=${KANBANANA_CORS_ORIGINS:-}
+    volumes:
+      # Persistent SQLite DB
+      - ./backend/data:/app/backend/data
+
+      # Portable Project Presets & Configs (mount host configs so custom JSON boards are loaded)
+      - ./configs:/app/configs:ro
+
+      # Shared Project Workspace & Git Worktrees Directory
+      # Override PROJECT_WORKSPACE_HOST and WORKTREES_DIR_HOST in .env or shell
+      - ${PROJECT_WORKSPACE_HOST:-.}:/workspaces/project
+      - ${WORKTREES_DIR_HOST:-./worktrees}:/workspaces/worktrees
+
+      # Auto-Detected Host Agent Config & Transcript/Log Mounts (read-only by default for least privilege)
+      # Any folder mounted under /agent-configs/<name> is automatically discovered by Kanbanana!
+      - ${ANTIGRAVITY_CONFIG_HOST:-~/.gemini/antigravity-cli}:/agent-configs/antigravity:ro
+      - ${CLAUDE_CONFIG_HOST:-~/.claude}:/agent-configs/claude:ro
+      # Uncomment or set host paths for additional agents you use:
+      # - ~/.antigravity:/agent-configs/antigravity-home
+      # - ~/.kimi:/agent-configs/kimi
+      # - ~/.kimi-code:/agent-configs/kimi-code
+      # - ~/.minimax:/agent-configs/minimax
+      # - ~/minimax-code:/agent-configs/minimax-code
+      # - ~/.grok:/agent-configs/grok
+      # - ~/.codex:/agent-configs/codex
+      # - ~/.cursor:/agent-configs/cursor
+      # - ~/.config/opencode:/agent-configs/opencode
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
