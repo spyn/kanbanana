@@ -9,6 +9,7 @@ import {
   GitMerge,
   GitPullRequest,
   MessageSquarePlus,
+  Pause,
   Play,
   Send,
   ShieldAlert,
@@ -58,6 +59,8 @@ export const TicketModal: React.FC<TicketModalProps> = ({
   const [doneWhenMd, setDoneWhenMd] = useState<string>(ticket.done_when_md || '')
   const [filesMd, setFilesMd] = useState<string>(ticket.files_md || '')
   const [editingSpec, setEditingSpec] = useState<boolean>(false)
+  const [isHeld, setIsHeld] = useState<boolean>(ticket.is_held ?? false)
+  const [togglingHold, setTogglingHold] = useState<boolean>(false)
 
   const [noteAuthor, setNoteAuthor] = useState<string>('user')
   const [noteKind, setNoteKind] = useState<NoteKind>(
@@ -144,6 +147,27 @@ export const TicketModal: React.FC<TicketModalProps> = ({
     }
   }
 
+  const handleToggleHold = async () => {
+    setTogglingHold(true)
+    setError('')
+    try {
+      if (isHeld) {
+        const updated = await api.resumeTicket(projectSlug, ticket.code)
+        setIsHeld(false)
+        onUpdated(updated)
+      } else {
+        const reason = window.prompt(`Reason for putting ${ticket.code} on hold (optional):`, '')
+        const updated = await api.holdTicket(projectSlug, ticket.code, reason || '')
+        setIsHeld(true)
+        onUpdated(updated)
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to update hold status')
+    } finally {
+      setTogglingHold(false)
+    }
+  }
+
   const handleSaveMeta = async () => {
     setSaving(true)
     setError('')
@@ -158,6 +182,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
         do_md: doMd,
         done_when_md: doneWhenMd,
         files_md: filesMd,
+        is_held: isHeld,
       })
       onUpdated(updated)
       setEditingSpec(false)
@@ -245,13 +270,39 @@ export const TicketModal: React.FC<TicketModalProps> = ({
             <h2 className="text-lg font-bold text-white mt-1">{ticket.title}</h2>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleHold}
+              disabled={togglingHold}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                isHeld
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/30'
+                  : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-amber-500/40'
+              }`}
+              title={isHeld ? 'Resume ticket execution' : 'Put ticket on hold'}
+            >
+              {isHeld ? (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Resume Work
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3.5 h-3.5" />
+                  Hold Ticket
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -259,6 +310,37 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           {error && (
             <div className="rounded-lg bg-rose-950/80 border border-rose-700 px-4 py-2.5 text-xs text-rose-200">
               {error}
+            </div>
+          )}
+
+          {/* On Hold Callout Banner */}
+          {isHeld && (
+            <div className="rounded-xl border border-amber-500/50 bg-gradient-to-r from-amber-950/60 via-amber-900/30 to-slate-900/80 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md shadow-amber-950/30">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 mt-0.5">
+                  <Pause className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-200">Ticket is Currently On Hold</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      is_held = true
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-100/80 mt-0.5">
+                    Autonomous agents cannot claim, pick, or auto-dispatch this ticket while it is on hold. Resume the ticket when ready to continue work.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleHold}
+                disabled={togglingHold}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-md shadow-amber-500/20 transition cursor-pointer shrink-0"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Resume Work
+              </button>
             </div>
           )}
 
@@ -283,7 +365,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
                   </p>
                 </div>
               </div>
-              {onQuickClaim && (
+              {onQuickClaim && !isHeld && (
                 <button
                   type="button"
                   onClick={() => {

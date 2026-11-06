@@ -92,7 +92,7 @@ export interface GlobalSettings {
   hud_neuro_audio_armed_default: boolean
   hud_neuro_volume: number
   hud_pr_drop_enabled: boolean
-  fighter_avatars_enabled: boolean
+  fighter_avatars_enabled?: boolean
   custom_models: Record<string, CustomModelSpec[]>
   managed_skills: ManagedSkillSpec[]
   lane_configs: Record<string, LaneConfig>
@@ -234,6 +234,7 @@ export interface Ticket {
   commit_sha: string
   exactness_level: string
   parent_ticket_id?: string | null
+  is_held?: boolean
   position: number
   updated_at: string
   created_at: string

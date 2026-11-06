@@ -17,7 +17,6 @@ import {
   Zap,
 } from 'lucide-react'
 import { api, getClientApiToken } from '../api'
-import { AgentFighterAvatar } from './AgentFighterAvatar'
 import type {
   AgentInfo,
   AgentProfile,
@@ -31,7 +30,6 @@ interface AgentsTabProps {
   agentProfiles: AgentProfile[]
   boardAgents: AgentInfo[]
   worktreesOverview: ProjectWorktreesOverview | null
-  fighterAvatarsEnabled?: boolean
   defaultMcpUrl?: string
   onRefresh: () => void
   onNavigateTicket: (code: string) => void
@@ -167,7 +165,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   project,
   agentProfiles,
   worktreesOverview,
-  fighterAvatarsEnabled = true,
   defaultMcpUrl,
   onRefresh,
   onNavigateTicket,
@@ -417,7 +414,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Kimi Fighter 2"
+                  placeholder="e.g. Kimi Code 2"
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1.5 text-xs text-white"
                 />
               </div>
@@ -565,7 +562,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
           </form>
         </div>
 
-        {/* Right 2 Columns: Auto-Detected Agent Fighters, Usage Telemetry Graph & Transcripts */}
+        {/* Right 2 Columns: Auto-Detected Agent Profiles, Usage Telemetry Graph & Transcripts */}
         <div className="lg:col-span-2 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
@@ -573,7 +570,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                 Auto-Detected Agent Roster & Live Telemetry ({agentProfiles.length})
               </h3>
               <p className="text-xs text-slate-400">
-                Active agents unleash fighting combos! Shows live usage quota, Tokens/min &amp; LOC/min telemetry graph, and transcript tails.
+                Monitors live usage quota, Tokens/min &amp; LOC/min telemetry graphs, worktree status, and recent execution events.
               </p>
             </div>
             <button
@@ -604,25 +601,16 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                       : 'border-slate-800 bg-slate-900/75'
                   }`}
                 >
-                  {/* Top Row: Fighter Avatar + Agent Details + Telemetry Chart */}
+                  {/* Top Row: Agent Details + Telemetry Chart */}
                   <div className="flex flex-col md:flex-row gap-4 items-stretch">
-                    {/* Fighter Character Avatar */}
-                    {fighterAvatarsEnabled && (
-                      <AgentFighterAvatar
-                        provider={prof.provider}
-                        name={prof.name}
-                        isActive={prof.activity_state === 'active'}
-                        isRecent={prof.activity_state === 'recent'}
-                        quotaUsedPct={quotaPct}
-                        tokensPerMin={tpm}
-                      />
-                    )}
-
-                    {/* Right Side: Metadata + Usage Bar + Tokens/LOC per Minute Graph */}
+                    {/* Metadata + Usage Bar + Tokens/LOC per Minute Graph */}
                     <div className="flex-1 flex flex-col justify-between gap-3">
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
+                            <span className="p-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                              <Bot className="w-4 h-4" />
+                            </span>
                             <span className="text-base font-bold text-white">{prof.name}</span>
                             {activityBadge(prof.activity_state)}
                             <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">

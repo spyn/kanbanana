@@ -10,6 +10,7 @@ import {
   Layers,
   Lock,
   MessageSquare,
+  Pause,
   Play,
   Plus,
   Search,
@@ -131,7 +132,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             ? 'send-it-launching border-amber-400 bg-slate-900 ring-2 ring-cyan-400/80'
             : isLanding
               ? 'send-it-landing border-emerald-400 bg-slate-900 ring-2 ring-amber-400/70'
-              : 'border-slate-800 bg-slate-900/90 hover:border-indigo-500/50 hover:bg-slate-900'
+              : t.is_held
+                ? 'border-dashed border-amber-500/40 bg-amber-950/15 opacity-80 hover:border-amber-500/70 hover:opacity-100 hover:bg-slate-900'
+                : 'border-slate-800 bg-slate-900/90 hover:border-indigo-500/50 hover:bg-slate-900'
         }`}
       >
         {/* "SEND IT!" Launching Overlay Stamp */}
@@ -167,6 +170,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             {t.section_code && (
               <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400">
                 Sec {t.section_code}
+              </span>
+            )}
+            {t.is_held && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <Pause className="w-2.5 h-2.5 text-amber-400" />
+                HOLD
               </span>
             )}
           </div>
@@ -278,34 +287,44 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 {noteCount}
               </span>
             )}
-            {((t.status === 'todo' && t.dependencies_satisfied) ||
-              t.status === 'triage' ||
-              t.status === 'review' ||
-              t.status === 'blocked') && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onQuickClaim(t)
-                }}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
-                  t.status === 'blocked'
-                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
-                    : 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30'
-                }`}
-                title={
-                  t.status === 'blocked'
-                    ? 'Handover & resume blocked story with an agent'
-                    : 'Scan & assign available A2A agent to this ticket'
-                }
+            {t.is_held ? (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300/90 border border-amber-800/60"
+                title="Ticket is on hold. Open ticket to resume."
               >
-                <Play className="w-2.5 h-2.5" />
-                {t.status === 'review'
-                  ? 'Review (A2A)'
-                  : t.status === 'blocked'
-                    ? 'Handover'
-                    : 'Claim'}
-              </button>
+                <Pause className="w-2.5 h-2.5 text-amber-400" />
+                On Hold
+              </span>
+            ) : (
+              ((t.status === 'todo' && t.dependencies_satisfied) ||
+                t.status === 'triage' ||
+                t.status === 'review' ||
+                t.status === 'blocked') && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onQuickClaim(t)
+                  }}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                    t.status === 'blocked'
+                      ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                      : 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30'
+                  }`}
+                  title={
+                    t.status === 'blocked'
+                      ? 'Handover & resume blocked story with an agent'
+                      : 'Scan & assign available A2A agent to this ticket'
+                  }
+                >
+                  <Play className="w-2.5 h-2.5" />
+                  {t.status === 'review'
+                    ? 'Review (A2A)'
+                    : t.status === 'blocked'
+                      ? 'Handover'
+                      : 'Claim'}
+                </button>
+              )
             )}
           </div>
         </div>

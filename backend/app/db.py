@@ -184,6 +184,7 @@ class Database:
                     commit_sha TEXT NOT NULL DEFAULT '',
                     exactness_level TEXT NOT NULL DEFAULT '',
                     parent_ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                    is_held INTEGER NOT NULL DEFAULT 0,
                     position INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -285,6 +286,11 @@ class Database:
             if "parent_id" not in cols_msg:
                 conn.execute("ALTER TABLE messages ADD COLUMN parent_id TEXT REFERENCES messages(id) ON DELETE CASCADE")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id)")
+
+            cols_t = [r["name"] for r in conn.execute("PRAGMA table_info(tickets)").fetchall()]
+            if "is_held" not in cols_t:
+                conn.execute("ALTER TABLE tickets ADD COLUMN is_held INTEGER NOT NULL DEFAULT 0")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tickets_project_status_held ON tickets(project_id, status, is_held)")
 
     # ------------------------------------------------------------------
     # Global Settings
@@ -568,6 +574,7 @@ class Database:
         pre_sec_code = d.pop("sec_code", None)
         pre_sec_title = d.pop("sec_title", None)
         d["depends_on"] = json.loads(d.pop("depends_on_json") or "[]")
+        d["is_held"] = bool(d.get("is_held"))
 
         if pre_sec_code is not None or pre_sec_title is not None:
             d["section_code"] = pre_sec_code or ""
@@ -797,9 +804,9 @@ class Database:
                     id, project_id, section_id, code, title, status, triage_state, owner,
                     depends_on_json, files_md, do_md, done_when_md, blocked_reason,
                     branch_name, worktree_path, pr_url, commit_sha, exactness_level,
-                    parent_ticket_id, position, updated_at, created_at
+                    parent_ticket_id, is_held, position, updated_at, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     tid,
@@ -821,6 +828,7 @@ class Database:
                     req.commit_sha,
                     req.exactness_level,
                     req.parent_ticket_id,
+                    1 if getattr(req, "is_held", False) else 0,
                     max_pos + 1,
                     ts,
                     ts,
@@ -880,6 +888,11 @@ class Database:
             exactness_level = (
                 req.exactness_level if req.exactness_level is not None else cur["exactness_level"]
             )
+            is_held = (
+                (1 if req.is_held else 0)
+                if req.is_held is not None
+                else (1 if cur.get("is_held") else 0)
+            )
             position = req.position if req.position is not None else cur["position"]
 
             ts = now_iso()
@@ -889,7 +902,7 @@ class Database:
                     section_id = ?, code = ?, title = ?, status = ?, triage_state = ?,
                     owner = ?, depends_on_json = ?, files_md = ?, do_md = ?, done_when_md = ?,
                     blocked_reason = ?, branch_name = ?, worktree_path = ?, pr_url = ?,
-                    commit_sha = ?, exactness_level = ?, position = ?, updated_at = ?
+                    commit_sha = ?, exactness_level = ?, is_held = ?, position = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -909,6 +922,7 @@ class Database:
                     pr_url,
                     commit_sha,
                     exactness_level,
+                    is_held,
                     position,
                     ts,
                     cur["id"],
@@ -1095,6 +1109,12 @@ class Database:
                     f"(owner: {row['owner'] or 'none'}). Only tickets in 'todo' or 'blocked' can be claimed."
                 )
 
+            if bool(row["is_held"]):
+                raise RuntimeError(
+                    f"Cannot claim ticket '{row['code']}': ticket is on hold (is_held=True). "
+                    f"Resume or unhold the ticket before claiming."
+                )
+
             deps = json.loads(row["depends_on_json"] or "[]")
             if deps:
                 all_t = conn.execute(
@@ -1178,7 +1198,7 @@ class Database:
                 SELECT t.*, COALESCE(s.position, 999) as sec_pos
                 FROM tickets t
                 LEFT JOIN sections s ON t.section_id = s.id
-                WHERE t.project_id = ? AND t.status = 'todo'
+                WHERE t.project_id = ? AND t.status = 'todo' AND t.is_held = 0
                 ORDER BY sec_pos ASC, t.position ASC, t.created_at ASC
                 """,
                 (pid,),
@@ -1494,7 +1514,7 @@ class Database:
                     **({} if compact else {"do_md": t["do_md"], "done_when_md": t["done_when_md"]}),
                 }
                 for t in all_todos
-                if t["dependencies_satisfied"]
+                if t["dependencies_satisfied"] and not t.get("is_held")
             ]
             blocked_by_deps_todos = [
                 {

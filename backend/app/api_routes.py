@@ -487,6 +487,56 @@ def create_api_router(db: Database) -> APIRouter:
         except (ValueError, RuntimeError) as e:
             raise HTTPException(status_code=409, detail=str(e))
 
+    @router.post("/projects/{slug}/tickets/{code}/hold")
+    async def hold_ticket_endpoint(
+        slug: str, code: str, req: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        try:
+            body = req or {}
+            reason = str(body.get("reason") or "").strip()
+            author = str(body.get("author") or "user").strip()
+            t = db.update_ticket(slug, code, TicketUpdate(is_held=True))
+            if reason:
+                db.add_ticket_note(
+                    slug,
+                    code,
+                    NoteCreate(
+                        author=author,
+                        kind="system",
+                        content_md=f"⏸️ **Ticket Placed on Hold** by `{author}`: {reason}",
+                    ),
+                )
+                t = db.get_ticket(slug, code) or t
+            await event_hub.broadcast("ticket_updated", {"project_slug": slug, "code": code})
+            return t
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @router.post("/projects/{slug}/tickets/{code}/resume")
+    async def resume_ticket_endpoint(
+        slug: str, code: str, req: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        try:
+            body = req or {}
+            note_md = str(body.get("note_md") or "").strip()
+            author = str(body.get("author") or "user").strip()
+            t = db.update_ticket(slug, code, TicketUpdate(is_held=False))
+            note_text = note_md or f"▶️ **Ticket Resumed from Hold** by `{author}`."
+            db.add_ticket_note(
+                slug,
+                code,
+                NoteCreate(
+                    author=author,
+                    kind="system",
+                    content_md=note_text,
+                ),
+            )
+            t = db.get_ticket(slug, code) or t
+            await event_hub.broadcast("ticket_updated", {"project_slug": slug, "code": code})
+            return t
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
     @router.post("/projects/{slug}/tickets/{code}/claim-with-agent")
     async def claim_ticket_with_agent(
         slug: str,
@@ -500,6 +550,15 @@ def create_api_router(db: Database) -> APIRouter:
         existing_t = db.get_ticket(slug, code)
         if not existing_t:
             raise HTTPException(status_code=404, detail=f"Ticket '{code}' not found")
+
+        if existing_t.get("is_held"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Cannot claim ticket '{code}': ticket is currently on hold (is_held=True). "
+                    f"Resume or unhold the ticket before claiming."
+                ),
+            )
 
         g_settings = db.get_global_settings()
         profiles = discover_agent_profiles(db)

@@ -165,7 +165,6 @@ export const GlobalSettingsPage: React.FC<GlobalSettingsPageProps> = ({
         hud_neuro_audio_armed_default: draft.hud_neuro_audio_armed_default,
         hud_neuro_volume: draft.hud_neuro_volume,
         hud_pr_drop_enabled: draft.hud_pr_drop_enabled,
-        fighter_avatars_enabled: draft.fighter_avatars_enabled,
         custom_models: draft.custom_models,
         managed_skills: draft.managed_skills,
         lane_configs: draft.lane_configs,
@@ -1290,22 +1289,6 @@ export const GlobalSettingsPage: React.FC<GlobalSettingsPageProps> = ({
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col gap-2.5">
-              <div className="text-xs font-semibold text-white">
-                Visual Fighter Avatars
-              </div>
-              <label className="inline-flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={draft.fighter_avatars_enabled}
-                  onChange={(e) =>
-                    updateDraft({ fighter_avatars_enabled: e.target.checked })
-                  }
-                />
-                Show animated pixel-art fighter avatars on the Agents &amp; Live Activity tab
-              </label>
             </div>
           </div>
 

@@ -507,6 +507,10 @@ export default function App() {
   }
 
   const openClaimModal = (t: Ticket) => {
+    if (t.is_held) {
+      alert(`Ticket ${t.code} is currently on hold. Resume work before claiming.`)
+      return
+    }
     setClaimingTicket(t)
     setClaimSuccessResult(null)
     setClaimError('')
@@ -961,7 +965,6 @@ export default function App() {
             agentProfiles={agentProfiles}
             boardAgents={agents}
             worktreesOverview={worktreesOverview}
-            fighterAvatarsEnabled={globalSettings?.fighter_avatars_enabled !== false}
             defaultMcpUrl={globalSettings?.mcp_url}
             onRefresh={() => loadAll(activeSlug)}
             onNavigateTicket={handleNavigateTicket}

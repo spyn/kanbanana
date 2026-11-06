@@ -110,7 +110,7 @@ class GlobalSettings(BaseModel):
     hud_neuro_audio_armed_default: bool = False
     hud_neuro_volume: float = 0.78
     hud_pr_drop_enabled: bool = True
-    fighter_avatars_enabled: bool = True
+    fighter_avatars_enabled: Optional[bool] = None
     custom_models: dict[str, list[CustomModelSpec]] = Field(default_factory=dict)
     managed_skills: list[ManagedSkillSpec] = Field(default_factory=list)
     lane_configs: dict[str, LaneConfig] = Field(default_factory=dict)
@@ -181,6 +181,7 @@ class TicketCreate(BaseModel):
     commit_sha: str = ""
     exactness_level: str = ""
     parent_ticket_id: Optional[str] = None
+    is_held: bool = False
     initial_note_md: Optional[str] = None
     initial_note_author: str = "user"
 
@@ -202,6 +203,7 @@ class TicketUpdate(BaseModel):
     pr_url: Optional[str] = None
     commit_sha: Optional[str] = None
     exactness_level: Optional[str] = None
+    is_held: Optional[bool] = None
     position: Optional[int] = None
 
 

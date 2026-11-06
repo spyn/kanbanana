@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +19,8 @@ DOCS_DIR = next((p for p in _CANDIDATE_DOCS if p.exists() and (p / "BOARD.md").e
 
 @pytest.fixture()
 def test_app(tmp_path: Path):
+    import os
+    os.environ.pop("KANBANANA_API_TOKEN", None)
     db_file = tmp_path / "test_kanbanana.db"
     app = create_app(db_path=db_file, auto_seed=False)
     return app
@@ -319,6 +322,8 @@ async def test_mcp_server_tools_via_fastmcp_client(test_app):
         assert "report_agent_usage_exhausted" in tool_names
         assert "propose_todo_tickets" in tool_names
         assert "submit_triage_research_findings" in tool_names
+        assert "hold_ticket" in tool_names
+        assert "resume_ticket" in tool_names
 
         onboard = await mcp_client.call_tool(
             "get_project_onboarding", {"project_slug": "allpaca", "compact": True}
@@ -1313,7 +1318,8 @@ def test_security_and_performance_review_remediations(tmp_path: Path, monkeypatc
     generated_tok = ensure_safe_bind_auth("0.0.0.0")
     assert len(generated_tok) >= 24
     assert ensure_safe_bind_auth("127.0.0.1") == generated_tok
-    monkeypatch.delenv("KANBANANA_API_TOKEN", raising=False)
+    import os
+    os.environ.pop("KANBANANA_API_TOKEN", None)
     assert ensure_safe_bind_auth("127.0.0.1") == ""
 
     # Setup isolated worktrees & config roots for S3 path confinement checks
@@ -1490,11 +1496,11 @@ def test_security_and_performance_review_remediations(tmp_path: Path, monkeypatc
     assert statuses[0] == 401
     assert 429 in statuses
     _AUTH_FAILURES_BY_IP.clear()
-    monkeypatch.delenv("KANBANANA_API_TOKEN", raising=False)
+    os.environ.pop("KANBANANA_API_TOKEN", None)
 
 
 def test_systemone_dynamic_router_and_connection_probe(test_app, monkeypatch):
-    monkeypatch.delenv("KANBANANA_API_TOKEN", raising=False)
+    os.environ.pop("KANBANANA_API_TOKEN", None)
     client = TestClient(test_app)
 
     # 1. Test POST /api/systemone/test-connection with mock httpx.Client.post
@@ -1655,6 +1661,97 @@ def test_systemone_dynamic_router_and_connection_probe(test_app, monkeypatch):
     assert claim_failover.status_code == 200
     # Did not crash! Fell back to agent default or rule tier
     assert claim_failover.json()["ticket"]["owner"] == "grok-cli"
+
+
+@pytest.mark.asyncio
+async def test_ticket_hold_and_resume_lifecycle(test_app):
+    db = test_app.state.db
+    import_current_state_into_db(db, DOCS_DIR, project_slug="allpaca")
+    client = TestClient(test_app)
+    mcp = test_app.state.mcp
+
+    # 1. Create a fresh todo ticket
+    create_res = client.post(
+        "/api/projects/allpaca/tickets",
+        json={
+            "title": "Hold/Resume Lifecycle Verification Task",
+            "section": "Core",
+            "status": "todo",
+            "do_md": "- Verify hold prevents dispatch and claim",
+        },
+    )
+    assert create_res.status_code == 200
+    ticket = create_res.json()
+    code = ticket["code"]
+    assert ticket["is_held"] is False
+
+    # 2. Put ticket on hold via REST API
+    hold_res = client.post(
+        f"/api/projects/allpaca/tickets/{code}/hold",
+        json={"reason": "Waiting on upstream compiler fix", "author": "dev-lead"},
+    )
+    assert hold_res.status_code == 200
+    held_t = hold_res.json()
+    assert held_t["is_held"] is True
+    assert any("compiler fix" in n["content_md"] for n in held_t["notes"])
+
+    # 3. Verify onboarding bundle and pick_next_todo skip this held ticket
+    onboard = db.get_onboarding_bundle("allpaca", compact=True)
+    claimable_codes = {t["code"] for t in onboard["claimable_todo_tickets"]}
+    assert code not in claimable_codes
+
+    next_todo = db.pick_next_todo("allpaca", "probe-agent")
+    assert next_todo["code"] != code
+
+    # 4. Attempting to claim the held ticket via /claim fails with 409
+    claim_err = client.post(
+        f"/api/projects/allpaca/tickets/{code}/claim",
+        params={"agent_id": "test-agent"},
+    )
+    assert claim_err.status_code == 409
+    assert "on hold" in claim_err.json()["detail"]
+
+    # 5. Attempting to claim via /claim-with-agent fails with 409
+    claim_agent_err = client.post(
+        f"/api/projects/allpaca/tickets/{code}/claim-with-agent",
+        json={"agent_id": "test-agent", "auto_create_worktree": False, "launch_agent": False, "dispatch_via_a2a": False},
+    )
+    assert claim_agent_err.status_code == 409
+    assert "on hold" in claim_agent_err.json()["detail"]
+
+    # 6. Test FastMCP resume_ticket tool
+    async with Client(mcp) as mcp_client:
+        resume_mcp = await mcp_client.call_tool(
+            "resume_ticket",
+            {"project_slug": "allpaca", "code": code, "agent_id": "mcp-operator", "note_md": "Compiler fix landed"},
+        )
+        assert resume_mcp.data["is_held"] is False
+        assert any("Compiler fix landed" in n["content_md"] for n in resume_mcp.data["notes"])
+
+        # Ticket is unheld, claimable now
+        claim_mcp = await mcp_client.call_tool(
+            "claim_ticket",
+            {"project_slug": "allpaca", "code": code, "agent_id": "mcp-operator"},
+        )
+        assert claim_mcp.data["status"] == "in-progress"
+        assert claim_mcp.data["owner"] == "mcp-operator"
+
+        # 7. Test FastMCP hold_ticket on an in-progress ticket
+        hold_mcp = await mcp_client.call_tool(
+            "hold_ticket",
+            {"project_slug": "allpaca", "code": code, "agent_id": "mcp-operator", "reason": "Pausing during profiling"},
+        )
+        assert hold_mcp.data["is_held"] is True
+        assert hold_mcp.data["status"] == "in-progress"
+
+    # 8. Resume via REST API
+    res_resume = client.post(
+        f"/api/projects/allpaca/tickets/{code}/resume",
+        json={"author": "dev-lead", "note_md": "Resumed profiling"},
+    )
+    assert res_resume.status_code == 200
+    assert res_resume.json()["is_held"] is False
+
 
 
 

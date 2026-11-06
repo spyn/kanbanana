@@ -211,6 +211,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  holdTicket: (slug: string, code: string, reason?: string, author?: string) =>
+    request<Ticket>(`/api/projects/${slug}/tickets/${code}/hold`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || '', author: author || 'user' }),
+    }),
+  resumeTicket: (slug: string, code: string, noteMd?: string, author?: string) =>
+    request<Ticket>(`/api/projects/${slug}/tickets/${code}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ note_md: noteMd || '', author: author || 'user' }),
+    }),
 
   proposeTickets: (
     slug: string,

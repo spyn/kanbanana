@@ -3173,7 +3173,7 @@ export const OvernightTerminalHUD: React.FC<OvernightTerminalHUDProps> = ({
                           : 'bg-slate-900/55 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/80'
                   }`}
                 >
-                  {/* Top Line: Vector Fighter Emblem + Agentic Name + Live Status Badge */}
+                  {/* Top Line: Provider Emblem + Agentic Name + Live Status Badge */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div

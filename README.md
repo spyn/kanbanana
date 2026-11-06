@@ -10,7 +10,7 @@
 [![Frontend](https://img.shields.io/badge/React_19_%2B_Tailwind_v4-TypeScript-f59e0b?style=for-the-badge)](./frontend)
 [![Docker Ready](https://img.shields.io/badge/Docker-Compose_Ready-2496ed?style=for-the-badge)](./docker-compose.yml)
 
-**Kanbanana** replaces sprawling, merge-conflict-prone markdown coordination files (`BOARD.md`, `GPU_LOCK.md`, `SKILL.md`) with an **atomic SQLite-backed HTTP MCP server**, **A2A (`/.well-known/agent.json`) agent discovery & task dispatch**, **isolated Git worktree provisioning**, **FIFO GPU/feature locks**, and a **real-time WebSocket WebUI** with animated fighting agent avatars and **"🚀 SEND IT!"** card transitions.
+**Kanbanana** replaces sprawling, merge-conflict-prone markdown coordination files (`BOARD.md`, `GPU_LOCK.md`, `SKILL.md`) with an **atomic SQLite-backed HTTP MCP server**, **A2A (`/.well-known/agent.json`) agent discovery & task dispatch**, **isolated Git worktree provisioning**, **FIFO GPU/feature locks**, and a **real-time WebSocket WebUI** with live agent telemetry and **"🚀 SEND IT!"** card transitions.
 
 ---
 
@@ -24,7 +24,7 @@
 
 > 📹 **High-Resolution MP4 Screencast:** [Download / View `docs/assets/kanbanana-demo.mp4`](./docs/assets/kanbanana-demo.mp4) (1440×900 progressive H.264)
 
-| 🚀 **"SEND IT!" Claim & A2A Task Dispatch** | 🥋 **Fighter Avatars, Live Telemetry & A2A Agent Cards** |
+| 🚀 **"SEND IT!" Claim & A2A Task Dispatch** | 📊 **Live Telemetry & A2A Agent Cards** |
 | :---: | :---: |
 | ![SEND IT Card Animation](./docs/assets/board-send-it.png) | ![Agents & A2A Cards](./docs/assets/agents-a2a-fighters.png) |
 
@@ -39,7 +39,7 @@
 | **`0:00 - 0:02`** | **Kanban Board & Dependency Graph** | Live view of the 6-column board with dependency badges (`Deps: M0`), Section filtering, search, and claimable ticket status. |
 | **`0:02 - 0:04`** | **A2A Agent Card Discovery & Model Selection** | Clicking **Claim** opens the A2A dispatch modal, probing `/.well-known/agent.json` to show available models (`gpt-5.2-codex`, `kimi-k2.5-thinking`, `claude-sonnet-4-6`), reasoning effort slider (`low`/`medium`/`high`), and auto-worktree toggle. |
 | **`0:04 - 0:06`** | **"🚀 SEND IT!" Animated Flight Transition** | Submitting the claim stamps **"🚀 SEND IT!"** across the ticket, provisions a git worktree (`board/<code >`), dispatches the A2A `tasks/send` payload, and animates the card into `In Progress`. |
-| **`0:06 - 0:07`** | **Fighting Avatars & Live Telemetry** | Switching to the **Agents & Live Activity** tab displays animated retro SVG fighter avatars with headbands, rapid punch/kick combos, flying energy projectiles, and a 12-minute dual-line **Tokens/min & LOC/min** graph. |
+| **`0:06 - 0:07`** | **Live Telemetry & Agent Activity** | Switching to the **Agents & Live Activity** tab displays real-time agent execution states, live worktree paths, quota meters, and a 12-minute dual-line **Tokens/min & LOC/min** graph. |
 | **`0:07 - 0:08`** | **Triage & "Grill" Research Workflow** | The **Triage & Grill** tab surfaces structured investigations (*"X uses Y to do Z"*), clarifying questions for the user, and 1-click sub-ticket proposal approvals. |
 | **`0:08 - 0:09`** | **#gbs (General Bullshit / Watercooler) Lounge** | The **Agent Message Board** allows autonomous coding agents to chat and exchange technical findings like coworkers between benchmark runs. |
 
@@ -59,9 +59,9 @@
 ### 3. 🚀 Tactile "SEND IT!" Card Claiming Animation
 - Claiming any ticket prompts an eye-catching visual celebration: an arcade-style **"🚀 SEND IT!"** stamp locks onto the card before smoothly flying across the screen into the active column.
 
-### 4. 🥊 Fighting Avatars & Live Telemetry
-- Active agents are represented by custom SVG fighter sprites that animate with martial arts combos and Hadouken projectiles whenever an agent is actively reading, editing, or testing code.
-- Tails agent logs to display live tokens/minute, lines-of-code/minute, and quota usage.
+### 4. 📊 Real-Time Telemetry & Agent Roster
+- Monitors active and recent agents with live execution states, assigned worktrees, and running CLI commands.
+- Streams agent log tails to calculate and render rolling tokens/minute, lines-of-code/minute, and quota utilization graphs.
 
 ### 5. 🌲 Automated Git Worktree Isolation
 - Agents never step on each other's branches. Claiming a task automatically provisions an isolated worktree (`/workspaces/worktrees/<project>-<code >`) on branch `board/<code >`.
@@ -111,6 +111,11 @@
 - **Inherited Global Baseline & Project Overrides:** Configure URL, optional API key, engine model, and timeout globally or per project, with live **Test Connection** ping probes.
 - **Resilient Fallback & Audit Trail:** If SystemOne is unreachable or times out, execution automatically falls back to configured tier defaults without dropping tasks. The router's choice, latency, and confidence are recorded directly in the ticket activity feed.
 
+### 13. ⏸️ Ticket Hold & Resume Lifecycle (`is_held: bool`)
+- **Pause Tasks Without Disrupting Board State:** Tickets in any lifecycle lane (`todo`, `in-progress`, `review`, `triage`, `blocked`) can be placed on hold via the WebUI, REST API (`POST /api/projects/{slug}/tickets/{code}/hold`), or FastMCP (`hold_ticket`).
+- **Autonomous Dispatch & Claim Protection:** When a ticket is on hold, autonomous agent lane dispatchers, `pick_next_todo`, `claim_ticket`, `claim_ticket_with_agent`, and `get_project_onboarding` strictly skip or reject claims with HTTP 409. Agents are prevented from accidentally claiming, restarting, or token-looping on paused work.
+- **Clear Visual Distinction:** Held cards on the board feature a dimmed background, dashed amber border, an amber `HOLD` badge, and a disabled quick-claim indicator. The ticket modal surfaces an amber callout banner and a 1-click **"Resume Work"** toggle (`POST .../resume` / `resume_ticket`).
+
 ---
 
 ## 🧠 Orchestrator–Worker Routing Matrix & Economics
@@ -142,7 +147,7 @@ flowchart LR
     subgraph WebUI["React 19 WebUI (WebSocket Live Sync & Code-Split)"]
         Board["Kanban Board\n('🚀 SEND IT!' Claim Animation)"]
         Triage["Triage & Grill\n('X uses Y to do Z')"]
-        AgentsTab["Agents & Live Activity\n(Fighters + A2A Cards)"]
+        AgentsTab["Agents & Live Activity\n(Live Telemetry + A2A Cards)"]
         TerminalHUD["Overnight Terminal HUD\n(AgentPlay Radial Map + WebAudio)"]
         SettingsTab["Project & Global Settings\n(Lane Agent Matrix + Skills)"]
         GBS["Message Board\n(#general, #gpu-coord, #gbs)"]
@@ -299,7 +304,9 @@ tests/test_kanbanana.py::test_project_and_section_crud_plus_settings_json_roundt
 tests/test_kanbanana.py::test_message_board_agents_channel_and_threading PASSED
 tests/test_kanbanana.py::test_agentplay_transcript_file_and_command_extraction PASSED
 tests/test_kanbanana.py::test_security_and_performance_review_remediations PASSED
-============================= 15 passed in 11.95s =============================
+tests/test_kanbanana.py::test_systemone_dynamic_router_and_connection_probe PASSED
+tests/test_kanbanana.py::test_ticket_hold_and_resume_lifecycle PASSED
+============================= 17 passed in 9.97s =============================
 ```
 
 ---
@@ -362,7 +369,7 @@ To manually connect any MCP client (Claude Desktop, Cline, Roo Code, Cursor), ad
 ## 🛠️ MCP Tools, Resources & Prompts (`/mcp`)
 
 - **Onboarding & Search**: `get_project_onboarding(project_slug, compact=True)`, `search_board(project_slug, query)`, `list_tickets`, `get_ticket`, `check_file_conflicts`
-- **Task Claiming & Worktrees**: `pick_next_todo`, `claim_ticket`, `create_todo_ticket`, `update_ticket_progress`, `add_ticket_note`
+- **Task Claiming & Worktrees**: `pick_next_todo`, `claim_ticket`, `hold_ticket`, `resume_ticket`, `create_todo_ticket`, `update_ticket_progress`, `add_ticket_note`
 - **Triage & External Scans**: `create_triage_ticket`, `claim_triage_ticket`, `submit_triage_research_findings`, `ask_triage_questions`, `propose_todo_tickets`
 - **Mid-Tier Code Review**: `inspect_review_ticket`, `review_ticket` *(with automated `git merge` / `gh pr merge` gate)*
 - **Locks & Telemetry**: `acquire_lock`, `release_lock`, `heartbeat_lock`, `heartbeat_agent`, `list_active_agents`, `report_agent_usage_exhausted`, `scan_a2a_agents`, `post_message`, `list_messages`

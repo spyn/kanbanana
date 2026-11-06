@@ -1881,6 +1881,8 @@ def trigger_lane_auto_dispatch(
         return None
     if previous_status is not None and previous_status == lane:
         return None
+    if ticket.get("is_held"):
+        return None
 
     proj = db.get_project(project_slug)
     if not proj:

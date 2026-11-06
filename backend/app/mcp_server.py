@@ -237,6 +237,57 @@ def create_mcp_server(db: Database) -> FastMCP:
         return t
 
     @mcp.tool()
+    def hold_ticket(
+        project_slug: str,
+        code: str,
+        agent_id: str = "user",
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """
+        Puts a ticket on hold (`is_held=True`) to pause execution and prevent autonomous agents from claiming or auto-dispatching it.
+        Optionally records a system/hold note explaining why the ticket was paused.
+        """
+        t = db.update_ticket(project_slug, code, TicketUpdate(is_held=True))
+        if reason:
+            db.add_ticket_note(
+                project_slug,
+                code,
+                NoteCreate(
+                    author=agent_id,
+                    kind="system",
+                    content_md=f"⏸️ **Ticket Placed on Hold** by `{agent_id}`: {reason}",
+                ),
+            )
+            t = db.get_ticket(project_slug, code) or t
+        event_hub.notify_sync("ticket_updated", {"project_slug": project_slug, "code": code})
+        return t
+
+    @mcp.tool()
+    def resume_ticket(
+        project_slug: str,
+        code: str,
+        agent_id: str = "user",
+        note_md: str = "",
+    ) -> dict[str, Any]:
+        """
+        Resumes a held ticket (`is_held=False`), allowing agents to claim or auto-dispatch it again.
+        """
+        t = db.update_ticket(project_slug, code, TicketUpdate(is_held=False))
+        note_text = note_md or f"▶️ **Ticket Resumed from Hold** by `{agent_id}`."
+        db.add_ticket_note(
+            project_slug,
+            code,
+            NoteCreate(
+                author=agent_id,
+                kind="system",
+                content_md=note_text,
+            ),
+        )
+        t = db.get_ticket(project_slug, code) or t
+        event_hub.notify_sync("ticket_updated", {"project_slug": project_slug, "code": code})
+        return t
+
+    @mcp.tool()
     def update_ticket_progress(
         project_slug: str,
         code: str,
@@ -251,6 +302,7 @@ def create_mcp_server(db: Database) -> FastMCP:
         note_md: Optional[str] = None,
         note_kind: str = "note",
         release_locks: bool = False,
+        is_held: Optional[bool] = None,
     ) -> dict[str, Any]:
         """
         Update a ticket's status ('todo', 'in-progress', 'review', 'blocked', 'done'),
@@ -258,6 +310,7 @@ def create_mcp_server(db: Database) -> FastMCP:
         - If setting status back to 'todo' (giving up), owner is cleared automatically.
         - If setting status to 'review' or 'done', returns `newly_unblocked_tickets` and `held_locks_reminder`.
         - Set `release_locks=True` to automatically release any GPU/feature locks held by `agent_id`.
+        - Set `is_held=True` or `is_held=False` to pause or resume work on the ticket.
         """
         prev_ticket = db.get_ticket(project_slug, code)
         prev_status = prev_ticket["status"] if prev_ticket else None
@@ -280,6 +333,7 @@ def create_mcp_server(db: Database) -> FastMCP:
                 commit_sha=commit_sha,
                 exactness_level=exactness_level,
                 blocked_reason=blocked_reason,
+                is_held=is_held,
             ),
         )
         unblocked = t.get("newly_unblocked_tickets")
