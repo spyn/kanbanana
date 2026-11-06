@@ -55,6 +55,14 @@ class ManagedSkillSpec(BaseModel):
     built_in: bool = False
 
 
+class SystemOneConfig(BaseModel):
+    enabled: bool = False
+    url: str = "https://api.typesafe.ai"
+    api_key: Optional[str] = None
+    model: str = "jev-latest"
+    timeout_seconds: float = 5.0
+
+
 class AgentLaneRule(BaseModel):
     agent_key: str
     agent_label: str = ""
@@ -63,6 +71,7 @@ class AgentLaneRule(BaseModel):
     skills: list[str] = Field(default_factory=list)
     custom_instructions: str = ""
     enabled: bool = True
+    use_systemone: bool = False
 
 
 class LaneConfig(BaseModel):
@@ -85,6 +94,7 @@ class ProjectSettings(BaseModel):
     dispatch_via_a2a: Optional[bool] = None
     lane_configs: dict[str, LaneConfig] = Field(default_factory=dict)
     custom_skills: list[ManagedSkillSpec] = Field(default_factory=list)
+    systemone_config: Optional[SystemOneConfig] = None
 
 
 class GlobalSettings(BaseModel):
@@ -104,6 +114,7 @@ class GlobalSettings(BaseModel):
     custom_models: dict[str, list[CustomModelSpec]] = Field(default_factory=dict)
     managed_skills: list[ManagedSkillSpec] = Field(default_factory=list)
     lane_configs: dict[str, LaneConfig] = Field(default_factory=dict)
+    systemone_config: SystemOneConfig = Field(default_factory=SystemOneConfig)
 
 
 class GlobalSettingsUpdate(BaseModel):
@@ -121,6 +132,7 @@ class GlobalSettingsUpdate(BaseModel):
     custom_models: Optional[dict[str, list[CustomModelSpec]]] = None
     managed_skills: Optional[list[ManagedSkillSpec]] = None
     lane_configs: Optional[dict[str, LaneConfig]] = None
+    systemone_config: Optional[SystemOneConfig] = None
 
 
 class ProjectCreate(BaseModel):

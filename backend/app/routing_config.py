@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
+
+import httpx
 
 from .models import (
     AgentLaneRule,
@@ -11,7 +16,10 @@ from .models import (
     LaneConfig,
     ManagedSkillSpec,
     ProjectSettings,
+    SystemOneConfig,
 )
+
+logger = logging.getLogger("kanbanana.systemone")
 
 CONFIGURABLE_LANES: tuple[str, ...] = (
     "triage",
@@ -525,7 +533,7 @@ def build_default_global_settings() -> GlobalSettings:
 
 
 def normalize_global_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Ensures all built-in lanes and built-in skills exist even on older/partial JSON payloads."""
+    """Ensures all built-in lanes, built-in skills, and SystemOne settings exist even on older/partial JSON payloads."""
     defaults = build_default_global_settings()
     if not raw:
         return defaults.model_dump()
@@ -558,11 +566,18 @@ def normalize_global_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
     else:
         merged_data["managed_skills"] = [sk.model_dump() for sk in defaults.managed_skills]
 
+    # Normalize systemone_config
+    raw_s1 = raw.get("systemone_config")
+    if isinstance(raw_s1, dict):
+        merged_data["systemone_config"] = SystemOneConfig(**raw_s1).model_dump()
+    else:
+        merged_data["systemone_config"] = defaults.systemone_config.model_dump()
+
     return GlobalSettings(**merged_data).model_dump()
 
 
 def normalize_project_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Normalizes a project's `project_settings` JSON with safe defaults for all 5 lanes."""
+    """Normalizes a project's `project_settings` JSON with safe defaults for all 5 lanes and SystemOne."""
     base = ProjectSettings().model_dump()
     if not raw:
         raw = {}
@@ -575,7 +590,224 @@ def normalize_project_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
         else:
             lane_map[lane] = LaneConfig(inherit_global=True).model_dump()
     merged["lane_configs"] = lane_map
+
+    raw_s1 = raw.get("systemone_config")
+    if isinstance(raw_s1, dict):
+        merged["systemone_config"] = SystemOneConfig(**raw_s1).model_dump()
+    else:
+        merged["systemone_config"] = None
+
     return ProjectSettings(**merged).model_dump()
+
+
+def format_systemone_endpoint_url(raw_url: str) -> str:
+    cleaned = (raw_url or "").strip().rstrip("/")
+    if not cleaned:
+        return "https://api.typesafe.ai/v1/systemone"
+    if cleaned.endswith("/v1/systemone"):
+        return cleaned
+    return f"{cleaned}/v1/systemone"
+
+
+def resolve_effective_systemone_config(
+    global_settings: Optional[dict[str, Any]],
+    project_settings: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    g_norm = global_settings or {}
+    p_norm = project_settings or {}
+    g_s1 = g_norm.get("systemone_config") or SystemOneConfig().model_dump()
+    p_s1 = p_norm.get("systemone_config")
+    if p_s1 and isinstance(p_s1, dict) and p_s1.get("enabled") is not None:
+        return {
+            "enabled": bool(p_s1.get("enabled", False)),
+            "url": str(p_s1.get("url") or g_s1.get("url") or "https://api.typesafe.ai"),
+            "api_key": p_s1.get("api_key") if p_s1.get("api_key") is not None else g_s1.get("api_key"),
+            "model": str(p_s1.get("model") or g_s1.get("model") or "jev-latest"),
+            "timeout_seconds": float(p_s1.get("timeout_seconds") or g_s1.get("timeout_seconds") or 5.0),
+            "source": "project",
+        }
+    return {
+        "enabled": bool(g_s1.get("enabled", False)),
+        "url": str(g_s1.get("url") or "https://api.typesafe.ai"),
+        "api_key": g_s1.get("api_key"),
+        "model": str(g_s1.get("model") or "jev-latest"),
+        "timeout_seconds": float(g_s1.get("timeout_seconds") or 5.0),
+        "source": "global",
+    }
+
+
+def query_systemone_routing(
+    systemone_config: dict[str, Any],
+    task_state: dict[str, Any],
+    candidate_models: list[dict[str, Any]],
+    supported_efforts: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """
+    Calls the TypeSafe AI System One HTTP API (POST /v1/systemone) with choice questions
+    to decide the optimal model and effort for a task while respecting token budget.
+    """
+    endpoint = format_systemone_endpoint_url(str(systemone_config.get("url") or ""))
+    api_key = (systemone_config.get("api_key") or "").strip()
+    model_name = str(systemone_config.get("model") or "jev-latest").strip()
+    timeout = float(systemone_config.get("timeout_seconds") or 5.0)
+
+    # 1. Build Model Criteria map
+    model_criteria: dict[str, str] = {}
+    for m in candidate_models:
+        mid = str(m.get("id") or "").strip()
+        if not mid:
+            continue
+        mname = str(m.get("name") or mid)
+        tier = str(m.get("tier") or "mid-tier")
+        desc = str(m.get("description") or f"{tier} execution model")
+        model_criteria[mid] = f"{mname} [{tier} tier] - {desc}"
+
+    if not model_criteria:
+        raise ValueError("No candidate models provided to SystemOne")
+
+    # 2. Build Effort Criteria map
+    effort_choices = supported_efforts or ["low", "medium", "high", "max"]
+    effort_descriptions = {
+        "low": "Fast, economical execution for simple, bounded, or low-risk tasks",
+        "medium": "Balanced reasoning and standard test execution",
+        "high": "Deep architectural reasoning, technical spikes, and hard debugging",
+        "max": "Exhaustive verification, highest precision, and extended thinking",
+    }
+    effort_criteria = {eff: effort_descriptions.get(eff, f"{eff} reasoning effort") for eff in effort_choices}
+
+    # 3. Construct TypeSafe System One question payload
+    questions = {
+        "recommended_model": {
+            "type": "choice",
+            "instructions": "Select the best model for this task considering complexity, risk, and token budget ceiling",
+            "criteria": model_criteria,
+        },
+        "recommended_effort": {
+            "type": "choice",
+            "instructions": "Select the optimal reasoning effort level for this task",
+            "criteria": effort_criteria,
+        },
+    }
+
+    state_str = json.dumps(task_state, indent=2)
+    payload = {
+        "model": model_name,
+        "state": state_str,
+        "questions": questions,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Kanbanana-SystemOne/1.0",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    t0 = time.perf_counter()
+    with httpx.Client(timeout=timeout) as client:
+        resp = client.post(endpoint, json=payload, headers=headers)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+
+    raw_answers = data.get("answers")
+    answers_map: dict[str, Any] = {}
+    if isinstance(raw_answers, dict):
+        answers_map = raw_answers
+    elif isinstance(raw_answers, list):
+        for item in raw_answers:
+            if isinstance(item, dict):
+                qid = item.get("question_id") or item.get("id") or item.get("name")
+                ans_body = item.get("answer") if "answer" in item else item
+                if qid:
+                    answers_map[str(qid)] = ans_body
+
+    model_ans = answers_map.get("recommended_model") or {}
+    if isinstance(model_ans, dict) and "choice" not in model_ans and "answer" in model_ans:
+        if isinstance(model_ans["answer"], dict):
+            model_ans = model_ans["answer"]
+        elif isinstance(model_ans["answer"], str):
+            model_ans = {"choice": model_ans["answer"]}
+
+    effort_ans = answers_map.get("recommended_effort") or {}
+    if isinstance(effort_ans, dict) and "choice" not in effort_ans and "answer" in effort_ans:
+        if isinstance(effort_ans["answer"], dict):
+            effort_ans = effort_ans["answer"]
+        elif isinstance(effort_ans["answer"], str):
+            effort_ans = {"choice": effort_ans["answer"]}
+
+    chosen_model = str(model_ans.get("choice") or "").strip()
+    if chosen_model not in model_criteria:
+        chosen_model = list(model_criteria.keys())[0]
+
+    chosen_effort = str(effort_ans.get("choice") or "").strip()
+    if chosen_effort not in effort_criteria:
+        chosen_effort = effort_choices[0] if effort_choices else "medium"
+
+    return {
+        "success": True,
+        "model": chosen_model,
+        "effort": chosen_effort,
+        "confidence": model_ans.get("confidence") if isinstance(model_ans, dict) else None,
+        "model_confidence": model_ans.get("confidence") if isinstance(model_ans, dict) else None,
+        "effort_confidence": effort_ans.get("confidence") if isinstance(effort_ans, dict) else None,
+        "model_probabilities": model_ans.get("probabilities") if isinstance(model_ans, dict) else None,
+        "effort_probabilities": effort_ans.get("probabilities") if isinstance(effort_ans, dict) else None,
+        "model_used": data.get("model") or model_name,
+        "latency_ms": latency_ms,
+        "usage": data.get("usage"),
+        "fallback": False,
+    }
+
+
+def test_systemone_connection(
+    url: str,
+    api_key: Optional[str] = None,
+    model: str = "jev-latest",
+    timeout_seconds: float = 5.0,
+) -> dict[str, Any]:
+    """Lightweight probe to verify connectivity to a SystemOne endpoint."""
+    endpoint = format_systemone_endpoint_url(url)
+    payload = {
+        "model": model or "jev-latest",
+        "state": "Kanbanana SystemOne connection verification probe.",
+        "questions": {
+            "probe": {
+                "type": "choice",
+                "instructions": "Verify connectivity",
+                "criteria": {"ok": "Connection is functional"},
+            }
+        },
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Kanbanana-SystemOne/1.0",
+    }
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    t0 = time.perf_counter()
+    try:
+        with httpx.Client(timeout=timeout_seconds) as client:
+            resp = client.post(endpoint, json=payload, headers=headers)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "success": True,
+                "latency_ms": latency_ms,
+                "model": data.get("model") or model,
+                "status": "connected",
+                "answers": data.get("answers"),
+            }
+    except Exception as e:
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {
+            "success": False,
+            "latency_ms": latency_ms,
+            "error": str(e),
+            "status": "error",
+        }
 
 
 def parse_skill_frontmatter(md_text: str, fallback_id: str) -> tuple[str, str]:
@@ -905,10 +1137,12 @@ def resolve_agent_lane_plan(
     explicit_model: Optional[str] = None,
     explicit_effort: Optional[str] = None,
     explicit_skills: Optional[list[str]] = None,
+    ticket: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """
     Computes the concrete execution plan (agent, model, effort, skills, policies, self-review check)
     when `agent_id` picks up or is auto-dispatched on a ticket in `lane`.
+    Evaluates SystemOne (/v1/systemone) if enabled on the matched Agent x Lane rule.
     """
     g_norm = normalize_global_settings(global_settings)
     p_norm = normalize_project_settings((project or {}).get("project_settings"))
@@ -969,15 +1203,97 @@ def resolve_agent_lane_plan(
         profile=profile,
     )
 
+    use_systemone = bool(matched_rule and matched_rule.get("use_systemone"))
+    systemone_decision: Optional[dict[str, Any]] = None
+
     chosen_model = (explicit_model or "").strip()
-    if not chosen_model and matched_rule:
+    chosen_effort = (explicit_effort or "").strip()
+
+    # SystemOne Evaluation Branch (if enabled on rule and not explicitly overridden)
+    if use_systemone and not chosen_model:
+        s1_cfg = resolve_effective_systemone_config(g_norm, p_norm)
+        if s1_cfg.get("enabled") and s1_cfg.get("url"):
+            # Gather candidates from profile
+            candidate_models: list[dict[str, Any]] = []
+            if profile:
+                sup_models = list(
+                    profile.get("supported_models")
+                    or ((profile.get("a2a_card") or {}).get("supported_models"))
+                    or []
+                )
+                for sm in sup_models:
+                    if isinstance(sm, dict) and sm.get("id"):
+                        candidate_models.append(sm)
+
+            if not candidate_models:
+                canon_prov = canonical_provider_for_agent(
+                    target_agent, str((profile or {}).get("provider") or "")
+                )
+                from .a2a_protocol import PROVIDER_MODEL_CATALOG
+
+                for pm in PROVIDER_MODEL_CATALOG.get(canon_prov, []):
+                    candidate_models.append(pm.model_dump())
+
+            token_ceiling = p_norm.get("token_ceiling_override") or int(
+                g_norm.get("default_token_ceiling", 1_200_000)
+            )
+
+            task_state = {
+                "lane": norm_lane,
+                "target_agent": target_agent,
+                "token_ceiling": token_ceiling,
+            }
+            if ticket:
+                task_state.update(
+                    {
+                        "ticket_code": ticket.get("code"),
+                        "title": ticket.get("title"),
+                        "files_md": ticket.get("files_md") or "",
+                        "do_md": ticket.get("do_md") or "",
+                        "done_when_md": ticket.get("done_when_md") or "",
+                        "depends_on": ticket.get("depends_on") or [],
+                        "exactness_level": ticket.get("exactness_level") or "exact",
+                    }
+                )
+
+            supported_efforts = ["low", "medium", "high", "max"]
+            if profile and profile.get("effort_levels"):
+                supported_efforts = list(profile["effort_levels"])
+
+            try:
+                s1_decision = query_systemone_routing(
+                    s1_cfg,
+                    task_state=task_state,
+                    candidate_models=candidate_models,
+                    supported_efforts=supported_efforts,
+                )
+                chosen_model = s1_decision["model"]
+                if not chosen_effort:
+                    chosen_effort = s1_decision["effort"]
+                systemone_decision = s1_decision
+            except Exception as e:
+                logger.warning(
+                    f"SystemOne evaluation failed, falling back gracefully to tier defaults: {e}"
+                )
+                systemone_decision = {
+                    "fallback": True,
+                    "error": str(e),
+                    "model_used": s1_cfg.get("model", "jev-latest"),
+                }
+        else:
+            systemone_decision = {
+                "fallback": True,
+                "reason": "SystemOne is disabled or URL not configured",
+            }
+
+    # Manual rule model / effort fallback
+    if not chosen_model and matched_rule and not use_systemone:
         chosen_model = str(matched_rule.get("model") or "").strip()
 
-    chosen_effort = (explicit_effort or "").strip()
-    if not chosen_effort and matched_rule:
+    if not chosen_effort and matched_rule and not use_systemone:
         chosen_effort = str(matched_rule.get("effort") or "").strip()
 
-    # Tier-aware Orchestrator -> Worker fallback when profile has no explicit agent_rule
+    # Tier-aware Orchestrator -> Worker fallback when profile has no explicit agent_rule or SystemOne fallback
     if profile and not chosen_model:
         sup_models = list(
             profile.get("supported_models")
@@ -1071,6 +1387,8 @@ def resolve_agent_lane_plan(
         "agent_name": (profile or {}).get("name") or (matched_rule or {}).get("agent_label") or target_agent,
         "model": chosen_model,
         "effort": chosen_effort,
+        "use_systemone": use_systemone,
+        "systemone_decision": systemone_decision,
         "skill_ids": skill_ids,
         "skills": resolved_skills,
         "custom_instructions": str((matched_rule or {}).get("custom_instructions") or "").strip(),

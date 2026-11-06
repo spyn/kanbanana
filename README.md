@@ -104,6 +104,13 @@
 - **Transcript Secret Redaction & Prompt Delimiters:** Sensitive credentials (`sk-...`, `Bearer ...`, `*KEY=`) are automatically sanitized from telemetry, and untrusted ticket specifications are delimited with `<untrusted_ticket_spec>` prompt boundaries.
 - **High-Performance Architecture:** Persistent thread-local SQLite WAL connections with lock-free concurrent readers, single-call `git status` batching, ref-driven 60 fps audio visualizers, and code-split production bundles (152 kB initial chunk).
 
+### 12. 🧠 SystemOne Dynamic Model & Effort Router (`TypeSafe AI System One`)
+- **Dynamic Task-to-Model Routing:** Integrates with native TypeSafe AI System One endpoints (`POST /v1/systemone`, default model `jev-latest`) to intelligently size model tier and reasoning effort per task.
+- **Token-Budget-Aware Choice Optimization:** Rather than prompt-hallucinated LLM router text, SystemOne ingests the ticket's file footprint (`files_md`), task scope (`do_md`), acceptance criteria (`done_when_md`), and token ceiling, returning probabilistic choice answers over candidate models and reasoning efforts.
+- **Lane × Agent Matrix Toggle:** Enable the **SystemOne Dynamic Routing** switch on any rule card (e.g. `In Progress` or `Review`) to let SystemOne dynamically select the optimal agent model and effort tier. Manual reasoning/preset fields are cleanly dimmed with links to configuration.
+- **Inherited Global Baseline & Project Overrides:** Configure URL, optional API key, engine model, and timeout globally or per project, with live **Test Connection** ping probes.
+- **Resilient Fallback & Audit Trail:** If SystemOne is unreachable or times out, execution automatically falls back to configured tier defaults without dropping tasks. The router's choice, latency, and confidence are recorded directly in the ticket activity feed.
+
 ---
 
 ## 🧠 Orchestrator–Worker Routing Matrix & Economics

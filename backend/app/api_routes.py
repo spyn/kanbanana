@@ -75,6 +75,7 @@ from .routing_config import (
     agents_match_identity,
     discover_unified_skills,
     resolve_agent_lane_plan,
+    test_systemone_connection,
 )
 from .skill_generator import render_code_review_skill_md, render_skill_md
 
@@ -220,6 +221,7 @@ def create_api_router(db: Database) -> APIRouter:
         agent_id: str = Query(default=""),
         profile_id: Optional[str] = None,
         ticket_owner: Optional[str] = None,
+        ticket_code: Optional[str] = None,
     ) -> dict[str, Any]:
         proj = db.get_project(slug)
         if not proj:
@@ -227,6 +229,7 @@ def create_api_router(db: Database) -> APIRouter:
         gs = db.get_global_settings()
         profiles = discover_agent_profiles(db)
         prof = resolve_or_virtual_profile(profiles, agent_id, profile_id)
+        tick = db.get_ticket(slug, ticket_code) if ticket_code else None
         return resolve_agent_lane_plan(
             gs,
             proj,
@@ -235,6 +238,19 @@ def create_api_router(db: Database) -> APIRouter:
             profile=prof,
             profiles=profiles,
             ticket_owner=ticket_owner,
+            ticket=tick,
+        )
+
+    @router.post("/systemone/test-connection")
+    def test_systemone_connection_endpoint(req: dict[str, Any]) -> dict[str, Any]:
+        url = str(req.get("url") or "").strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="SystemOne endpoint URL is required")
+        api_key = req.get("api_key")
+        model = str(req.get("model") or "jev-latest").strip()
+        timeout = float(req.get("timeout_seconds") or 5.0)
+        return test_systemone_connection(
+            url=url, api_key=api_key, model=model, timeout_seconds=timeout
         )
 
     # ------------------------------------------------------------------
@@ -516,6 +532,7 @@ def create_api_router(db: Database) -> APIRouter:
             explicit_model=req.model,
             explicit_effort=req.effort,
             explicit_skills=req.skills,
+            ticket=existing_t,
         )
 
         branch_prefix = str(routing_plan.get("branch_prefix") or "board/").strip()
@@ -630,6 +647,24 @@ def create_api_router(db: Database) -> APIRouter:
                     ),
                 }
 
+        s1 = routing_plan.get("systemone_decision")
+        if s1 and not s1.get("fallback"):
+            conf_val = s1.get("model_confidence")
+            conf_str = f" · confidence: {conf_val:.0%}" if conf_val is not None else ""
+            db.add_ticket_note(
+                slug,
+                code,
+                NoteCreate(
+                    author=req.agent_id,
+                    kind="system",
+                    content_md=(
+                        f"🧠 **SystemOne Router ({s1.get('model_used', 'jev-latest')})** dynamically assigned model `{s1.get('model')}` "
+                        f"with effort `{s1.get('effort')}` ({s1.get('latency_ms', 0)}ms{conf_str})."
+                    ),
+                ),
+            )
+            t = db.get_ticket(slug, code) or t
+
         await event_hub.broadcast(
             "ticket_claimed",
             {
@@ -645,6 +680,7 @@ def create_api_router(db: Database) -> APIRouter:
             "launch": launch_result,
             "a2a_dispatch": a2a_dispatch,
             "routing_plan": routing_plan,
+            "systemone_decision": s1,
         }
 
     @router.post("/projects/{slug}/tickets/{code}/notes")

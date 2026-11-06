@@ -283,6 +283,7 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
       existing
         ? {
             ...existing,
+            use_systemone: Boolean(existing.use_systemone),
             skills: [...(existing.skills || [])],
           }
         : {
@@ -293,6 +294,7 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
             skills: [...(effLane.default_skills || [])],
             custom_instructions: '',
             enabled: true,
+            use_systemone: false,
           },
     )
     setCustomModelInput('')
@@ -307,7 +309,9 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
     const cleanRule: AgentLaneRule = {
       ...draftRule,
       agent_label: agentMeta?.name || draftRule.agent_label || draftRule.agent_key,
-      model: finalModel,
+      model: draftRule.use_systemone ? '' : finalModel,
+      effort: draftRule.use_systemone ? '' : (draftRule.effort || ''),
+      use_systemone: Boolean(draftRule.use_systemone),
     }
     updateLane(lane, (prev) => ({
       ...prev,
@@ -674,13 +678,22 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
                             </div>
 
                             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                              <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono text-[10px]">
-                                {rule.model || 'default-model'}
-                              </span>
-                              {rule.effort && (
-                                <span className="px-1.5 py-0.5 rounded bg-slate-900 text-emerald-300 border border-slate-700 font-mono text-[9px] uppercase">
-                                  {rule.effort}
+                              {rule.use_systemone ? (
+                                <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono text-[10px] font-bold inline-flex items-center gap-1">
+                                  <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+                                  SYSTEMONE ROUTER
                                 </span>
+                              ) : (
+                                <>
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono text-[10px]">
+                                    {rule.model || 'default-model'}
+                                  </span>
+                                  {rule.effort && (
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-900 text-emerald-300 border border-slate-700 font-mono text-[9px] uppercase">
+                                      {rule.effort}
+                                    </span>
+                                  )}
+                                </>
                               )}
                             </div>
                           </div>
@@ -787,9 +800,16 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
                           {rule ? (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center justify-between gap-1">
-                                <span className="font-mono text-[10px] text-indigo-300 truncate">
-                                  {rule.model || 'default'}
-                                </span>
+                                {rule.use_systemone ? (
+                                  <span className="font-mono text-[9px] text-purple-300 font-bold inline-flex items-center gap-0.5 truncate">
+                                    <Sparkles className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                    SYSTEMONE
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-[10px] text-indigo-300 truncate">
+                                    {rule.model || 'default'}
+                                  </span>
+                                )}
                                 {isPreferred && (
                                   <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">
                                     PREF
@@ -860,35 +880,87 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
 
             <div className="p-5 overflow-y-auto flex flex-col gap-4">
               {/* Agent Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Target Coding Agent
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Target Coding Agent
+                </label>
+                <select
+                  value={draftRule.agent_key}
+                  onChange={(e) => {
+                    const nextKey = e.target.value
+                    const ag = agentOptions.find((a) => a.id === nextKey)
+                    const nextModels = getModelsForAgentKey(nextKey)
+                    setDraftRule({
+                      ...draftRule,
+                      agent_key: nextKey,
+                      agent_label: ag?.name || nextKey,
+                      model: nextModels[0]?.id || '',
+                    })
+                    setCustomModelInput('')
+                  }}
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-white"
+                >
+                  {agentOptions.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      {ag.name} ({ag.id}){ag.active ? ' · ONLINE' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* SystemOne Dynamic Router Switch */}
+              <div className="rounded-xl border border-purple-500/30 bg-purple-950/20 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-purple-300" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white">
+                          Use SystemOne Dynamic Router
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono text-[9px]">
+                          POST /v1/systemone
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Calls the fast SystemOne model to evaluate task blast radius, files touched, and token budget ceiling at pickup time to select optimal model & effort.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draftRule.use_systemone)}
+                      onChange={(e) =>
+                        setDraftRule({ ...draftRule, use_systemone: e.target.checked })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600" />
                   </label>
-                  <select
-                    value={draftRule.agent_key}
-                    onChange={(e) => {
-                      const nextKey = e.target.value
-                      const ag = agentOptions.find((a) => a.id === nextKey)
-                      const nextModels = getModelsForAgentKey(nextKey)
-                      setDraftRule({
-                        ...draftRule,
-                        agent_key: nextKey,
-                        agent_label: ag?.name || nextKey,
-                        model: nextModels[0]?.id || '',
-                      })
-                      setCustomModelInput('')
-                    }}
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-white"
-                  >
-                    {agentOptions.map((ag) => (
-                      <option key={ag.id} value={ag.id}>
-                        {ag.name} ({ag.id}){ag.active ? ' · ONLINE' : ''}
-                      </option>
-                    ))}
-                  </select>
                 </div>
 
+                {draftRule.use_systemone && (
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-purple-300 bg-purple-950/40 rounded-lg p-2.5 border border-purple-500/20">
+                    <span className="flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                      Model and reasoning effort fields are locked to SystemOne dynamic evaluation.
+                    </span>
+                    <span className="text-slate-400 text-[10px] underline decoration-slate-600">
+                      Configured in Global / Project Settings &gt; SystemOne
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Manual Model & Reasoning Effort Controls (Disabled when SystemOne is enabled) */}
+              <div
+                className={`flex flex-col gap-4 transition ${
+                  draftRule.use_systemone ? 'opacity-35 pointer-events-none select-none' : ''
+                }`}
+              >
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Reasoning Effort Tier
@@ -905,41 +977,41 @@ export const LaneAgentMatrixEditor: React.FC<LaneAgentMatrixEditorProps> = ({
                     <option value="max">Max (Extended frontier thinking)</option>
                   </select>
                 </div>
-              </div>
 
-              {/* Model Picker (Preset Catalog + Custom Model Slug Input) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Preset / Catalog Model
-                  </label>
-                  <select
-                    value={draftRule.model}
-                    onChange={(e) => {
-                      setDraftRule({ ...draftRule, model: e.target.value })
-                      setCustomModelInput('')
-                    }}
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white"
-                  >
-                    <option value="">Agent Default Model</option>
-                    {getModelsForAgentKey(draftRule.agent_key).map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.id}) · [{m.tier}]
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Or Custom Model Slug Override
-                  </label>
-                  <input
-                    type="text"
-                    value={customModelInput}
-                    onChange={(e) => setCustomModelInput(e.target.value)}
-                    placeholder="e.g. grok-4-fast-qa or openrouter/deepseek-r1"
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white"
-                  />
+                {/* Model Picker (Preset Catalog + Custom Model Slug Input) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Preset / Catalog Model
+                    </label>
+                    <select
+                      value={draftRule.model}
+                      onChange={(e) => {
+                        setDraftRule({ ...draftRule, model: e.target.value })
+                        setCustomModelInput('')
+                      }}
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white"
+                    >
+                      <option value="">Agent Default Model</option>
+                      {getModelsForAgentKey(draftRule.agent_key).map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.id}) · [{m.tier}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Or Custom Model Slug Override
+                    </label>
+                    <input
+                      type="text"
+                      value={customModelInput}
+                      onChange={(e) => setCustomModelInput(e.target.value)}
+                      placeholder="e.g. grok-4-fast-qa or openrouter/deepseek-r1"
+                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white"
+                    />
+                  </div>
                 </div>
               </div>
 

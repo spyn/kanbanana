@@ -96,6 +96,22 @@ export const api = {
     request<GlobalSettings>('/api/settings/global/reset', {
       method: 'POST',
     }),
+  testSystemOneConnection: (body: {
+    url: string
+    api_key?: string | null
+    model?: string
+    timeout_seconds?: number
+  }) =>
+    request<{
+      success: boolean
+      latency_ms?: number
+      model?: string
+      status?: string
+      error?: string
+    }>('/api/systemone/test-connection', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getUnifiedSkillsCatalog: (projectSlug?: string) =>
     request<SkillCatalogItem[]>(
       `/api/skills/catalog${projectSlug ? `?project_slug=${encodeURIComponent(projectSlug)}` : ''}`,

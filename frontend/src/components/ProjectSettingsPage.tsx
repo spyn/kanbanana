@@ -3,8 +3,11 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Cpu,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
   FileCode2,
   FileJson,
   FolderGit2,
@@ -50,7 +53,7 @@ interface ProjectSettingsPageProps {
   onOpenGlobalSettings?: () => void
 }
 
-type ProjectSubTab = 'matrix' | 'general' | 'skills' | 'sections-guardrails'
+type ProjectSubTab = 'matrix' | 'systemone' | 'general' | 'skills' | 'sections-guardrails'
 
 function defaultProjectSettings(): ProjectSettings {
   return {
@@ -61,6 +64,7 @@ function defaultProjectSettings(): ProjectSettings {
     dispatch_via_a2a: null,
     lane_configs: {},
     custom_skills: [],
+    systemone_config: null,
   }
 }
 
@@ -137,6 +141,48 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
   // Delete project confirmation
   const [deleteConfirmSlug, setDeleteConfirmSlug] = useState<string>('')
   const [deletingProject, setDeletingProject] = useState<boolean>(false)
+
+  // SystemOne router test state for project
+  const [s1Testing, setS1Testing] = useState<boolean>(false)
+  const [s1TestResult, setS1TestResult] = useState<{
+    success: boolean
+    latency_ms?: number
+    model?: string
+    error?: string
+  } | null>(null)
+  const [showS1ApiKey, setShowS1ApiKey] = useState<boolean>(false)
+
+  const testSystemOne = async () => {
+    const effective =
+      projSettings.systemone_config?.enabled !== undefined
+        ? projSettings.systemone_config
+        : globalSettings?.systemone_config || {
+            enabled: false,
+            url: 'https://api.typesafe.ai',
+            api_key: '',
+            model: 'jev-latest',
+            timeout_seconds: 5.0,
+          }
+
+    setS1Testing(true)
+    setS1TestResult(null)
+    try {
+      const res = await api.testSystemOneConnection({
+        url: effective.url || 'https://api.typesafe.ai',
+        api_key: effective.api_key || null,
+        model: effective.model || 'jev-latest',
+        timeout_seconds: effective.timeout_seconds || 5.0,
+      })
+      setS1TestResult(res)
+    } catch (err: any) {
+      setS1TestResult({
+        success: false,
+        error: err.message || 'Connection test failed',
+      })
+    } finally {
+      setS1Testing(false)
+    }
+  }
 
   const [toast, setToast] = useState<{
     type: 'success' | 'error' | 'info'
@@ -477,6 +523,38 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
 
         <button
           type="button"
+          onClick={() => setSubTab('systemone')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+            subTab === 'systemone'
+              ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+              : 'bg-slate-900/70 text-slate-300 border-slate-800 hover:bg-slate-800/80'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5 text-purple-400" />
+          SystemOne Router
+          {projSettings.systemone_config ? (
+            projSettings.systemone_config.enabled ? (
+              <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 text-[9px] font-mono">
+                OVERRIDE (ON)
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-mono">
+                OVERRIDE (OFF)
+              </span>
+            )
+          ) : globalSettings?.systemone_config?.enabled ? (
+            <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">
+              GLOBAL (ON)
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-mono">
+              GLOBAL (OFF)
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setSubTab('general')}
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
             subTab === 'general'
@@ -670,6 +748,306 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: SystemOne Router */}
+      {subTab === 'systemone' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 flex flex-col gap-5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Cpu className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      SystemOne Dynamic Router · Project Configuration
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      TypeSafe AI System One decision engine for intelligent task-to-model routing and reasoning effort sizing.
+                    </p>
+                  </div>
+                </div>
+
+                {projSettings.systemone_config && (
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={projSettings.systemone_config.enabled}
+                      onChange={(e) => {
+                        const enabled = e.target.checked
+                        updateSettings({
+                          systemone_config: {
+                            ...projSettings.systemone_config!,
+                            enabled,
+                          },
+                        })
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                )}
+              </div>
+
+              {/* Mode Selection Banner */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3.5 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Configuration Mode:
+                    </span>
+                    {projSettings.systemone_config ? (
+                      <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-mono border border-purple-500/40">
+                        Custom Project Override Active
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/40">
+                        Inheriting Global Baseline
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {projSettings.systemone_config ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateSettings({ systemone_config: null })
+                          showToast('info', 'Reverted to Global Baseline SystemOne config')
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300 cursor-pointer"
+                      >
+                        Revert to Global Baseline
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const base = globalSettings?.systemone_config
+                          updateSettings({
+                            systemone_config: {
+                              enabled: base?.enabled ?? true,
+                              url: base?.url || 'https://api.typesafe.ai',
+                              api_key: base?.api_key || '',
+                              model: base?.model || 'jev-latest',
+                              timeout_seconds: base?.timeout_seconds || 5.0,
+                            },
+                          })
+                          showToast('info', 'Created custom SystemOne project override')
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-semibold text-white cursor-pointer shadow-sm shadow-purple-600/30"
+                      >
+                        Override for This Project
+                      </button>
+                    )}
+
+                    {onOpenGlobalSettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenGlobalSettings}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                      >
+                        Edit Global Settings
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {!projSettings.systemone_config && (
+                  <div className="text-xs text-slate-400 bg-slate-900/60 rounded-lg p-3 border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-300">Global State:</span>
+                      {globalSettings?.systemone_config?.enabled ? (
+                        <span className="text-emerald-400 font-mono text-[11px]">
+                          ENABLED ({globalSettings.systemone_config.url})
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 font-mono text-[11px]">
+                          DISABLED in Global Baseline
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Model: <code className="text-purple-300">{globalSettings?.systemone_config?.model || 'jev-latest'}</code> · Timeout: <code className="text-purple-300">{globalSettings?.systemone_config?.timeout_seconds ?? 5.0}s</code>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Override Form Fields */}
+              {projSettings.systemone_config && (
+                <>
+                  {/* Endpoint URL */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                      <span>API Base URL / Endpoint</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Default: https://api.typesafe.ai</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={projSettings.systemone_config.url}
+                      onChange={(e) => {
+                        updateSettings({
+                          systemone_config: {
+                            ...projSettings.systemone_config!,
+                            url: e.target.value,
+                          },
+                        })
+                      }}
+                      placeholder="https://api.typesafe.ai"
+                      className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Must point to a TypeSafe AI System One compatible host. Standardizes to <code className="text-purple-300 font-mono">/v1/systemone</code>.
+                    </p>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                      <span>API Key <span className="text-slate-500 font-normal">(Optional if hosted locally/unprotected)</span></span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showS1ApiKey ? 'text' : 'password'}
+                        value={projSettings.systemone_config.api_key || ''}
+                        onChange={(e) => {
+                          updateSettings({
+                            systemone_config: {
+                              ...projSettings.systemone_config!,
+                              api_key: e.target.value,
+                            },
+                          })
+                        }}
+                        placeholder="ts-live-..."
+                        className="w-full rounded-xl bg-slate-950 border border-slate-800 pl-3 pr-9 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowS1ApiKey((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        {showS1ApiKey ? (
+                          <EyeOff className="w-3.5 h-3.5" />
+                        ) : (
+                          <Eye className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Model & Timeout Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-slate-300">
+                        SystemOne Model / Engine
+                      </label>
+                      <input
+                        type="text"
+                        value={projSettings.systemone_config.model}
+                        onChange={(e) => {
+                          updateSettings({
+                            systemone_config: {
+                              ...projSettings.systemone_config!,
+                              model: e.target.value,
+                            },
+                          })
+                        }}
+                        placeholder="jev-latest"
+                        className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                      />
+                      <p className="text-[10px] text-slate-500">e.g. jev-latest, jev-turbo, or custom checkpoint</p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-slate-300">
+                        Timeout (Seconds)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        step={0.5}
+                        value={projSettings.systemone_config.timeout_seconds}
+                        onChange={(e) => {
+                          updateSettings({
+                            systemone_config: {
+                              ...projSettings.systemone_config!,
+                              timeout_seconds: parseFloat(e.target.value) || 5.0,
+                            },
+                          })
+                        }}
+                        className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Strict cutoff before fallback triggers</p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Test Connection Probe */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={testSystemOne}
+                  disabled={s1Testing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer shadow-sm shadow-purple-600/30"
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                  {s1Testing ? 'Pinging SystemOne...' : 'Test Connection'}
+                </button>
+
+                {s1TestResult && (
+                  <div
+                    className={`text-xs px-2.5 py-1 rounded-lg border flex items-center gap-2 ${
+                      s1TestResult.success
+                        ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300'
+                        : 'bg-rose-950/60 border-rose-700/50 text-rose-300'
+                    }`}
+                  >
+                    {s1TestResult.success ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Connected! {s1TestResult.latency_ms}ms · {s1TestResult.model}</span>
+                      </>
+                    ) : (
+                      <>
+                        <X className="w-3.5 h-3.5 text-rose-400" />
+                        <span>{s1TestResult.error}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right 5 cols: Architecture & Behavioral Notes */}
+          <div className="lg:col-span-5 flex flex-col gap-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400">
+                SystemOne Routing for {project.name}
+              </h4>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                SystemOne provides intelligent, token-budget-aware routing for tasks in this project:
+              </p>
+              <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4">
+                <li>
+                  <strong className="text-slate-200">Lane Matrix Switch:</strong> In the <strong className="text-slate-200">Lane × Agent Matrix</strong> tab, edit any rule card (e.g. In Progress or Review) and enable the <strong className="text-purple-300">SystemOne Dynamic Routing</strong> switch.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Contextual Ingestion:</strong> SystemOne receives the ticket files md, story description, and acceptance criteria to select the leanest model capable of completing the work.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Project Isolation:</strong> If desired, this project can connect to a specialized SystemOne instance or custom endpoint without impacting global defaults.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Audit Trail:</strong> When an agent claims a ticket under SystemOne routing, a note is logged with the chosen model, reasoning tier, and routing latency.
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       )}

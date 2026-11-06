@@ -56,11 +56,13 @@ def create_mcp_server(db: Database) -> FastMCP:
         lane: str,
         agent_id: str = "",
         ticket_owner: Optional[str] = None,
+        ticket_code: Optional[str] = None,
     ) -> dict[str, Any]:
         proj = db.get_project(project_slug)
         gs = db.get_global_settings()
         profiles = discover_agent_profiles(db)
         prof = resolve_or_virtual_profile(profiles, agent_id)
+        tick = db.get_ticket(project_slug, ticket_code) if ticket_code else None
         return resolve_agent_lane_plan(
             gs,
             proj,
@@ -69,6 +71,7 @@ def create_mcp_server(db: Database) -> FastMCP:
             profile=prof,
             profiles=profiles,
             ticket_owner=ticket_owner,
+            ticket=tick,
         )
 
     @mcp.tool()

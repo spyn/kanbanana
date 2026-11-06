@@ -1490,6 +1490,172 @@ def test_security_and_performance_review_remediations(tmp_path: Path, monkeypatc
     assert statuses[0] == 401
     assert 429 in statuses
     _AUTH_FAILURES_BY_IP.clear()
+    monkeypatch.delenv("KANBANANA_API_TOKEN", raising=False)
+
+
+def test_systemone_dynamic_router_and_connection_probe(test_app, monkeypatch):
+    monkeypatch.delenv("KANBANANA_API_TOKEN", raising=False)
+    client = TestClient(test_app)
+
+    # 1. Test POST /api/systemone/test-connection with mock httpx.Client.post
+    mock_responses = []
+
+    class MockResponse:
+        def __init__(self, status_code, json_data, text=""):
+            self.status_code = status_code
+            self._json = json_data
+            self.text = text
+
+        def json(self):
+            return self._json
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                import httpx
+                raise httpx.HTTPStatusError("API Error", request=None, response=self)
+
+    def mock_post(self, url, **kwargs):
+        if not mock_responses:
+            return MockResponse(200, {"model": "jev-latest", "status": "ok"})
+        action = mock_responses.pop(0)
+        if isinstance(action, Exception):
+            raise action
+        return action
+
+    import httpx
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+
+    # Test success connection
+    mock_responses.append(MockResponse(200, {"model": "jev-latest", "status": "ok"}))
+    probe_ok = client.post(
+        "/api/systemone/test-connection",
+        json={"url": "https://api.typesafe.ai", "model": "jev-latest", "timeout_seconds": 2.0},
+    )
+    assert probe_ok.status_code == 200
+    assert probe_ok.json()["success"] is True
+    assert probe_ok.json()["model"] == "jev-latest"
+
+    # Test failure connection
+    mock_responses.append(httpx.ConnectError("Connection refused by host"))
+    probe_fail = client.post(
+        "/api/systemone/test-connection",
+        json={"url": "http://127.0.0.1:9999", "model": "jev-latest"},
+    )
+    assert probe_fail.status_code == 200
+    assert probe_fail.json()["success"] is False
+    assert "refused" in probe_fail.json()["error"]
+
+    # 2. Setup project with SystemOne enabled on an in-progress rule
+    client.post("/api/projects", json={"slug": "sys1-proj", "name": "SystemOne Project"})
+    client.patch(
+        "/api/projects/sys1-proj",
+        json={
+            "project_settings": {
+                "systemone_config": {
+                    "enabled": True,
+                    "url": "https://api.typesafe.ai",
+                    "model": "jev-latest",
+                    "timeout_seconds": 5.0,
+                },
+                "lane_configs": {
+                    "todo": {
+                        "agent_rules": {
+                            "grok-cli": {
+                                "agent_key": "grok-cli",
+                                "agent_label": "Grok CLI",
+                                "model": "",
+                                "use_systemone": True,
+                                "tier": "mid-range",
+                                "enabled": True,
+                            }
+                        }
+                    }
+                },
+            }
+        },
+    )
+
+    t_res = client.post(
+        "/api/projects/sys1-proj/tickets",
+        json={
+            "title": "Optimize attention kernel matrix multiplication",
+            "section": "Core",
+            "status": "todo",
+            "files_md": "- `src/attention.cu`\n- `src/attention.h`",
+            "do_md": "- Optimize warp tile dimension",
+            "done_when_md": "- Tests pass with 2x speedup",
+        },
+    )
+    ticket_code = t_res.json()["code"]
+
+    # Mock SystemOne response answering recommended_model and recommended_effort
+    systemone_response = {
+        "model": "jev-latest",
+        "answers": [
+            {
+                "question_id": "recommended_model",
+                "type": "choice",
+                "answer": {
+                    "choice": "grok-code-fast-1",
+                    "confidence": 0.94,
+                    "rationale": "Medium difficulty kernel optimization; grok-code-fast-1 is optimal.",
+                },
+            },
+            {
+                "question_id": "recommended_effort",
+                "type": "choice",
+                "answer": {
+                    "choice": "medium",
+                    "confidence": 0.88,
+                },
+            },
+        ],
+    }
+    mock_responses.append(MockResponse(200, systemone_response))
+
+    claim_res = client.post(
+        f"/api/projects/sys1-proj/tickets/{ticket_code}/claim-with-agent",
+        json={
+            "agent_id": "grok-cli",
+            "auto_create_worktree": False,
+            "launch_agent": False,
+            "dispatch_via_a2a": False,
+        },
+    )
+    assert claim_res.status_code == 200
+    claim_data = claim_res.json()
+    assert claim_data.get("systemone_decision") is not None
+    assert claim_data["systemone_decision"]["model"] == "grok-code-fast-1"
+    assert claim_data["systemone_decision"]["effort"] == "medium"
+    assert claim_data["systemone_decision"]["confidence"] == 0.94
+    assert claim_data["launch"]["model"] == "grok-code-fast-1"
+    assert claim_data["launch"]["effort"] == "medium"
+
+    # Verify that a system note was recorded on the ticket
+    tick_after = client.get(f"/api/projects/sys1-proj/tickets/{ticket_code}").json()
+    notes = tick_after.get("notes") or []
+    assert any("grok-code-fast-1" in (n.get("content_md") or n.get("body") or "") for n in notes)
+
+    # 3. Test resilient fallback when SystemOne times out or fails
+    mock_responses.append(httpx.ReadTimeout("Request timed out"))
+    # Create another ticket to claim
+    t2 = client.post(
+        "/api/projects/sys1-proj/tickets",
+        json={"title": "Fix memory leak in buffer", "status": "todo"},
+    ).json()
+    claim_failover = client.post(
+        f"/api/projects/sys1-proj/tickets/{t2['code']}/claim-with-agent",
+        json={
+            "agent_id": "grok-cli",
+            "auto_create_worktree": False,
+            "launch_agent": False,
+            "dispatch_via_a2a": False,
+        },
+    )
+    assert claim_failover.status_code == 200
+    # Did not crash! Fell back to agent default or rule tier
+    assert claim_failover.json()["ticket"]["owner"] == "grok-cli"
+
 
 
 

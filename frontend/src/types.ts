@@ -37,6 +37,14 @@ export interface SkillCatalogItem {
   content_md: string
 }
 
+export interface SystemOneConfig {
+  enabled: boolean
+  url: string
+  api_key?: string | null
+  model: string
+  timeout_seconds?: number
+}
+
 export interface AgentLaneRule {
   agent_key: string
   agent_label: string
@@ -45,6 +53,7 @@ export interface AgentLaneRule {
   skills: string[]
   custom_instructions: string
   enabled: boolean
+  use_systemone?: boolean
   source?: 'global' | 'project'
 }
 
@@ -69,6 +78,7 @@ export interface ProjectSettings {
   dispatch_via_a2a?: boolean | null
   lane_configs: Record<string, LaneConfig>
   custom_skills: ManagedSkillSpec[]
+  systemone_config?: SystemOneConfig | null
 }
 
 export interface GlobalSettings {
@@ -86,6 +96,7 @@ export interface GlobalSettings {
   custom_models: Record<string, CustomModelSpec[]>
   managed_skills: ManagedSkillSpec[]
   lane_configs: Record<string, LaneConfig>
+  systemone_config?: SystemOneConfig
   provider_model_catalog?: Record<string, A2AModelSpec[]>
   updated_at?: string | null
 }

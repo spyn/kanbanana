@@ -40,7 +40,7 @@ interface GlobalSettingsPageProps {
   onClose: () => void
 }
 
-type GlobalSubTab = 'matrix' | 'skills-models' | 'network' | 'hud'
+type GlobalSubTab = 'matrix' | 'systemone' | 'skills-models' | 'network' | 'hud'
 
 const PROVIDER_KEYS = [
   { key: 'claude', label: 'Claude (Anthropic)' },
@@ -98,6 +98,43 @@ export const GlobalSettingsPage: React.FC<GlobalSettingsPageProps> = ({
   const [newModelTier, setNewModelTier] = useState<string>('frontier')
   const [newModelSupportsEffort, setNewModelSupportsEffort] = useState<boolean>(true)
   const [newModelDefaultEffort, setNewModelDefaultEffort] = useState<string>('high')
+
+  // SystemOne router test state
+  const [s1Testing, setS1Testing] = useState<boolean>(false)
+  const [s1TestResult, setS1TestResult] = useState<{
+    success: boolean
+    latency_ms?: number
+    model?: string
+    error?: string
+  } | null>(null)
+  const [showS1ApiKey, setShowS1ApiKey] = useState<boolean>(false)
+
+  const testSystemOne = async () => {
+    const s1 = draft.systemone_config || {
+      enabled: false,
+      url: 'https://api.typesafe.ai',
+      api_key: '',
+      model: 'jev-latest',
+    }
+    setS1Testing(true)
+    setS1TestResult(null)
+    try {
+      const res = await api.testSystemOneConnection({
+        url: s1.url || 'https://api.typesafe.ai',
+        api_key: s1.api_key || null,
+        model: s1.model || 'jev-latest',
+        timeout_seconds: s1.timeout_seconds || 5.0,
+      })
+      setS1TestResult(res)
+    } catch (err: any) {
+      setS1TestResult({
+        success: false,
+        error: err.message || 'Connection test failed',
+      })
+    } finally {
+      setS1Testing(false)
+    }
+  }
 
   useEffect(() => {
     setDraft(globalSettings)
@@ -379,6 +416,28 @@ export const GlobalSettingsPage: React.FC<GlobalSettingsPageProps> = ({
 
         <button
           type="button"
+          onClick={() => setSubTab('systemone')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+            subTab === 'systemone'
+              ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+              : 'bg-slate-900/70 text-slate-300 border-slate-800 hover:bg-slate-800/80'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5 text-purple-400" />
+          SystemOne Router
+          {draft.systemone_config?.enabled ? (
+            <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">
+              ENABLED
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-mono">
+              OFF
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setSubTab('skills-models')}
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
             subTab === 'skills-models'
@@ -428,6 +487,240 @@ export const GlobalSettingsPage: React.FC<GlobalSettingsPageProps> = ({
           providerModelCatalog={draft.provider_model_catalog || {}}
           customModels={draft.custom_models || {}}
         />
+      )}
+
+      {/* SUB-TAB: SystemOne Dynamic Router */}
+      {subTab === 'systemone' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 flex flex-col gap-5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Cpu className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      SystemOne Dynamic Model &amp; Effort Router
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      TypeSafe AI System One decision engine for intelligent task-to-model routing and reasoning effort sizing.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={draft.systemone_config?.enabled ?? false}
+                    onChange={(e) => {
+                      const enabled = e.target.checked
+                      const cur = draft.systemone_config || {
+                        enabled: false,
+                        url: 'https://api.typesafe.ai',
+                        api_key: '',
+                        model: 'jev-latest',
+                        timeout_seconds: 5.0,
+                      }
+                      updateDraft({
+                        systemone_config: { ...cur, enabled },
+                      })
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              {/* Endpoint URL */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>API Base URL / Endpoint</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Default: https://api.typesafe.ai</span>
+                </label>
+                <input
+                  type="text"
+                  value={draft.systemone_config?.url ?? 'https://api.typesafe.ai'}
+                  onChange={(e) => {
+                    const cur = draft.systemone_config || {
+                      enabled: false,
+                      url: 'https://api.typesafe.ai',
+                      api_key: '',
+                      model: 'jev-latest',
+                      timeout_seconds: 5.0,
+                    }
+                    updateDraft({
+                      systemone_config: { ...cur, url: e.target.value },
+                    })
+                  }}
+                  placeholder="https://api.typesafe.ai"
+                  className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Must point to a TypeSafe AI System One compatible host. Automatically formats to <code className="text-purple-300 font-mono">/v1/systemone</code>.
+                </p>
+              </div>
+
+              {/* API Key (Optional) */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>API Key <span className="text-slate-500 font-normal">(Optional if self-hosted / local)</span></span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showS1ApiKey ? 'text' : 'password'}
+                    value={draft.systemone_config?.api_key ?? ''}
+                    onChange={(e) => {
+                      const cur = draft.systemone_config || {
+                        enabled: false,
+                        url: 'https://api.typesafe.ai',
+                        api_key: '',
+                        model: 'jev-latest',
+                        timeout_seconds: 5.0,
+                      }
+                      updateDraft({
+                        systemone_config: { ...cur, api_key: e.target.value },
+                      })
+                    }}
+                    placeholder="ts-live-..."
+                    className="w-full rounded-xl bg-slate-950 border border-slate-800 pl-3 pr-9 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowS1ApiKey((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {showS1ApiKey ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model & Timeout Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-300">
+                    SystemOne Model / Engine
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.systemone_config?.model ?? 'jev-latest'}
+                    onChange={(e) => {
+                      const cur = draft.systemone_config || {
+                        enabled: false,
+                        url: 'https://api.typesafe.ai',
+                        api_key: '',
+                        model: 'jev-latest',
+                        timeout_seconds: 5.0,
+                      }
+                      updateDraft({
+                        systemone_config: { ...cur, model: e.target.value },
+                      })
+                    }}
+                    placeholder="jev-latest"
+                    className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                  />
+                  <p className="text-[10px] text-slate-500">e.g. jev-latest, jev-turbo, or custom checkpoint</p>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Timeout (Seconds)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    step={0.5}
+                    value={draft.systemone_config?.timeout_seconds ?? 5.0}
+                    onChange={(e) => {
+                      const cur = draft.systemone_config || {
+                        enabled: false,
+                        url: 'https://api.typesafe.ai',
+                        api_key: '',
+                        model: 'jev-latest',
+                        timeout_seconds: 5.0,
+                      }
+                      updateDraft({
+                        systemone_config: {
+                          ...cur,
+                          timeout_seconds: parseFloat(e.target.value) || 5.0,
+                        },
+                      })
+                    }}
+                    className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                  />
+                  <p className="text-[10px] text-slate-500">Strict cutoff before fallback triggers</p>
+                </div>
+              </div>
+
+              {/* Test Connection Probe */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={testSystemOne}
+                  disabled={s1Testing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer shadow-sm shadow-purple-600/30"
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                  {s1Testing ? 'Pinging SystemOne...' : 'Test Connection'}
+                </button>
+
+                {s1TestResult && (
+                  <div
+                    className={`text-xs px-2.5 py-1 rounded-lg border flex items-center gap-2 ${
+                      s1TestResult.success
+                        ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300'
+                        : 'bg-rose-950/60 border-rose-700/50 text-rose-300'
+                    }`}
+                  >
+                    {s1TestResult.success ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Connected! {s1TestResult.latency_ms}ms · {s1TestResult.model}</span>
+                      </>
+                    ) : (
+                      <>
+                        <X className="w-3.5 h-3.5 text-rose-400" />
+                        <span>{s1TestResult.error}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right 5 cols: Architecture & Behavioral Notes */}
+          <div className="lg:col-span-5 flex flex-col gap-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400">
+                How SystemOne Routing Works
+              </h4>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Rather than relying on free-form LLM text generation to decide routing, SystemOne evaluates mathematical choice criteria across candidate models and reasoning efforts:
+              </p>
+              <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4">
+                <li>
+                  <strong className="text-slate-200">Per-Rule Activation:</strong> In the <strong className="text-slate-200">Lane × Agent Matrix</strong>, switch on "SystemOne Routing" for any rule (e.g. In Progress, Review).
+                </li>
+                <li>
+                  <strong className="text-slate-200">Task Scope Ingestion:</strong> Before an agent spawns, Kanbanana serializes the story files, do/done-when criteria, and token ceiling into SystemOne.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Cost &amp; Quality Optimization:</strong> SystemOne outputs the highest-confidence model that can solve the ticket without wasting reasoning effort or token budget.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Resilient Fallback:</strong> If the endpoint times out or is unreachable, the system automatically falls back to your rule's default tier without halting execution.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Audit Logged:</strong> The routing decision, confidence, and latency are recorded directly in the ticket activity stream.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* SUB-TAB 2: Global Skill Library & Custom Models */}

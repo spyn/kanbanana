@@ -1903,6 +1903,7 @@ def trigger_lane_auto_dispatch(
         agent_id=pref_agent,
         profiles=profiles,
         ticket_owner=ticket.get("owner"),
+        ticket=ticket,
     )
 
     if plan.get("self_review_prevented") and not plan.get("agent_id"):
