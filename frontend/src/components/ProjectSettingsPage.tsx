@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
+  Clock,
   Copy,
   Cpu,
   Download,
@@ -12,8 +13,10 @@ import {
   FileJson,
   FolderGit2,
   Layers,
+  Moon,
   Play,
   Plus,
+  RefreshCw,
   Save,
   Settings2,
   ShieldAlert,
@@ -22,6 +25,7 @@ import {
   Trash2,
   Upload,
   X,
+  Zap,
 } from 'lucide-react'
 import { api, type ProjectPreset } from '../api'
 import {
@@ -53,7 +57,7 @@ interface ProjectSettingsPageProps {
   onOpenGlobalSettings?: () => void
 }
 
-type ProjectSubTab = 'matrix' | 'systemone' | 'general' | 'skills' | 'sections-guardrails'
+type ProjectSubTab = 'matrix' | 'systemone' | 'automation' | 'general' | 'skills' | 'sections-guardrails'
 
 function defaultProjectSettings(): ProjectSettings {
   return {
@@ -65,6 +69,31 @@ function defaultProjectSettings(): ProjectSettings {
     lane_configs: {},
     custom_skills: [],
     systemone_config: null,
+    gitea_webhook: {
+      secret: '',
+      auto_transition_on_fixes: true,
+      auto_done_on_pr_merge: true,
+      dispatch_reviewer_on_pr: true,
+    },
+    watchdog: {
+      enabled: true,
+      interval_seconds: 60,
+      stall_threshold_minutes: 15,
+      action: 'block',
+      auto_release_locks: true,
+    },
+    autorunner: {
+      enabled: false,
+      project_slug: '',
+      interval_seconds: 30,
+      max_concurrent_workers: 4,
+      auto_merge_clean_reviews: true,
+      token_ceiling: 2500000,
+      circuit_breaker_tripped: false,
+      tripped_reason: '',
+      tokens_spent_session: 0,
+      consecutive_failures: 0,
+    },
   }
 }
 
@@ -151,6 +180,45 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
     error?: string
   } | null>(null)
   const [showS1ApiKey, setShowS1ApiKey] = useState<boolean>(false)
+
+  // Watchdog & Auto-Runner state
+  const [runningWatchdogCheck, setRunningWatchdogCheck] = useState<boolean>(false)
+  const [steppingAutorunner, setSteppingAutorunner] = useState<boolean>(false)
+  const [copiedWebhookUrl, setCopiedWebhookUrl] = useState<boolean>(false)
+  const [showWebhookSecret, setShowWebhookSecret] = useState<boolean>(false)
+
+  const handleCheckWatchdogNow = async () => {
+    setRunningWatchdogCheck(true)
+    try {
+      const res = await api.checkWatchdog()
+      const recoveredCount = res.recovered?.length || 0
+      if (recoveredCount > 0) {
+        showToast('info', `Watchdog recovered ${recoveredCount} stalled ticket(s)`)
+      } else {
+        showToast('success', 'Watchdog check clean: 0 stalled tickets found')
+      }
+      onUpdated()
+    } catch (e: any) {
+      showToast('error', `Watchdog check failed: ${e.message}`)
+    } finally {
+      setRunningWatchdogCheck(false)
+    }
+  }
+
+  const handleStepAutorunnerNow = async () => {
+    setSteppingAutorunner(true)
+    try {
+      const res = await api.stepAutorunner(project.slug)
+      const merged = res.result?.merged_clean_reviews?.length || 0
+      const dispatched = res.result?.dispatched_todos?.length || 0
+      showToast('success', `Auto-Runner stepped: ${merged} reviews merged, ${dispatched} tasks dispatched`)
+      onUpdated()
+    } catch (e: any) {
+      showToast('error', `Auto-Runner step failed: ${e.message}`)
+    } finally {
+      setSteppingAutorunner(false)
+    }
+  }
 
   const testSystemOne = async () => {
     const effective =
@@ -549,6 +617,24 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
           ) : (
             <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-mono">
               GLOBAL (OFF)
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab('automation')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+            subTab === 'automation'
+              ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+              : 'bg-slate-900/70 text-slate-300 border-slate-800 hover:bg-slate-800/80'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-amber-400" />
+          Automations, Webhooks &amp; Watchdog
+          {projSettings.autorunner?.enabled && (
+            <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 text-[9px] font-mono">
+              COOKING
             </span>
           )}
         </button>
@@ -1047,6 +1133,459 @@ export const ProjectSettingsPage: React.FC<ProjectSettingsPageProps> = ({
                   <strong className="text-slate-200">Audit Trail:</strong> When an agent claims a ticket under SystemOne routing, a note is logged with the chosen model, reasoning tier, and routing latency.
                 </li>
               </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: Automations, Webhooks & Watchdog */}
+      {subTab === 'automation' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left 7 cols: Gitea Webhook & Git Integration */}
+          <div className="lg:col-span-7 flex flex-col gap-5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <FolderGit2 className="w-5 h-5 text-indigo-400" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      Native Gitea &amp; Git Webhook Receiver
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Auto-sync commit pushes, PR review dispatching, and PR merge status back into this project board.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shrink-0">
+                  HTTP POST
+                </span>
+              </div>
+
+              {/* Webhook Endpoint Box */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Webhook URL (Gitea Settings &rarr; Webhooks &rarr; Add Webhook)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${window.location.origin}/api/webhooks/gitea`}
+                    className="flex-1 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-indigo-300 select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/gitea`)
+                      setCopiedWebhookUrl(true)
+                      setTimeout(() => setCopiedWebhookUrl(false), 2000)
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white cursor-pointer"
+                  >
+                    {copiedWebhookUrl ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                        Copy URL
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Set Content Type to <code className="text-slate-400">application/json</code> and check events <code className="text-slate-400">Push Events</code> and <code className="text-slate-400">Pull Request Events</code>.
+                </p>
+              </div>
+
+              {/* Secret Token */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Webhook Shared Secret (Optional / Recommended)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showWebhookSecret ? 'text' : 'password'}
+                    value={projSettings.gitea_webhook?.secret || ''}
+                    onChange={(e) => {
+                      const current = projSettings.gitea_webhook || {
+                        secret: '',
+                        auto_transition_on_fixes: true,
+                        auto_done_on_pr_merge: true,
+                        dispatch_reviewer_on_pr: true,
+                      }
+                      updateSettings({
+                        gitea_webhook: { ...current, secret: e.target.value },
+                      })
+                    }}
+                    placeholder="Enter webhook secret or leave blank"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 pr-10 text-xs font-mono text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {showWebhookSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Webhook Event Behaviors */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col gap-3">
+                <span className="text-xs font-semibold text-slate-200">Automated Webhook Behaviors</span>
+
+                <label className="inline-flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.gitea_webhook?.auto_transition_on_fixes !== false}
+                    onChange={(e) => {
+                      const current = projSettings.gitea_webhook || {
+                        secret: '',
+                        auto_transition_on_fixes: true,
+                        auto_done_on_pr_merge: true,
+                        dispatch_reviewer_on_pr: true,
+                      }
+                      updateSettings({
+                        gitea_webhook: { ...current, auto_transition_on_fixes: e.target.checked },
+                      })
+                    }}
+                  />
+                  <span>
+                    Auto-transition ticket to <strong className="text-amber-300">Review</strong> on commit messages matching <code className="text-indigo-300">Fixes TICKET-123</code> or <code className="text-indigo-300">Resolves TICKET-123</code>
+                  </span>
+                </label>
+
+                <label className="inline-flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.gitea_webhook?.auto_done_on_pr_merge !== false}
+                    onChange={(e) => {
+                      const current = projSettings.gitea_webhook || {
+                        secret: '',
+                        auto_transition_on_fixes: true,
+                        auto_done_on_pr_merge: true,
+                        dispatch_reviewer_on_pr: true,
+                      }
+                      updateSettings({
+                        gitea_webhook: { ...current, auto_done_on_pr_merge: e.target.checked },
+                      })
+                    }}
+                  />
+                  <span>
+                    Auto-mark ticket as <strong className="text-emerald-300">Done</strong> when associated Gitea PR is merged
+                  </span>
+                </label>
+
+                <label className="inline-flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.gitea_webhook?.dispatch_reviewer_on_pr !== false}
+                    onChange={(e) => {
+                      const current = projSettings.gitea_webhook || {
+                        secret: '',
+                        auto_transition_on_fixes: true,
+                        auto_done_on_pr_merge: true,
+                        dispatch_reviewer_on_pr: true,
+                      }
+                      updateSettings({
+                        gitea_webhook: { ...current, dispatch_reviewer_on_pr: e.target.checked },
+                      })
+                    }}
+                  />
+                  <span>
+                    Auto-dispatch adversarial cross-vendor reviewer when a PR is opened or updated
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Task Watchdog Card */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      Dead-Agent Watchdog &amp; Stalled Task Auto-Recovery
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Continuously checks for hung or crashed agent sessions, releases held locks, and recovers tasks.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={runningWatchdogCheck}
+                  onClick={handleCheckWatchdogNow}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 text-xs font-semibold text-amber-200 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${runningWatchdogCheck ? 'animate-spin' : ''}`} />
+                  {runningWatchdogCheck ? 'Checking...' : 'Check Watchdog Now'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Stall Threshold (Minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={projSettings.watchdog?.stall_threshold_minutes ?? 15}
+                    onChange={(e) => {
+                      const current = projSettings.watchdog || {
+                        enabled: true,
+                        interval_seconds: 60,
+                        stall_threshold_minutes: 15,
+                        action: 'block',
+                        auto_release_locks: true,
+                      }
+                      updateSettings({
+                        watchdog: { ...current, stall_threshold_minutes: Number(e.target.value) || 15 },
+                      })
+                    }}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs font-mono text-white"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Tasks without heartbeat activity longer than this are considered stalled.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Recovery Action
+                  </label>
+                  <select
+                    value={projSettings.watchdog?.action || 'block'}
+                    onChange={(e) => {
+                      const current = projSettings.watchdog || {
+                        enabled: true,
+                        interval_seconds: 60,
+                        stall_threshold_minutes: 15,
+                        action: 'block',
+                        auto_release_locks: true,
+                      }
+                      updateSettings({
+                        watchdog: { ...current, action: e.target.value as any },
+                      })
+                    }}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-white"
+                  >
+                    <option value="block">Mark Task 'Blocked' &amp; Alert #agents</option>
+                    <option value="reset-to-todo">Reset Task to 'Todo' for Peer Pickup</option>
+                    <option value="alert-only">Alert #agents Only (Do Not Modify Ticket)</option>
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    What happens when a dead agent is detected on an active task.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 flex-wrap">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.watchdog?.enabled !== false}
+                    onChange={(e) => {
+                      const current = projSettings.watchdog || {
+                        enabled: true,
+                        interval_seconds: 60,
+                        stall_threshold_minutes: 15,
+                        action: 'block',
+                        auto_release_locks: true,
+                      }
+                      updateSettings({
+                        watchdog: { ...current, enabled: e.target.checked },
+                      })
+                    }}
+                  />
+                  Watchdog Enabled
+                </label>
+
+                <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.watchdog?.auto_release_locks !== false}
+                    onChange={(e) => {
+                      const current = projSettings.watchdog || {
+                        enabled: true,
+                        interval_seconds: 60,
+                        stall_threshold_minutes: 15,
+                        action: 'block',
+                        auto_release_locks: true,
+                      }
+                      updateSettings({
+                        watchdog: { ...current, auto_release_locks: e.target.checked },
+                      })
+                    }}
+                  />
+                  Auto-Release Held FIFO Locks on Recovery
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Right 5 cols: Let the Fleet Cook (Overnight Auto-Runner) */}
+          <div className="lg:col-span-5 flex flex-col gap-5">
+            <div className="rounded-2xl border border-purple-500/30 bg-purple-950/15 p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Moon className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      "Let the Fleet Cook" Overnight Auto-Runner
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Autonomous background engine that drives unblocked TODO tasks, merges clean reviews, and maintains token budgets.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-purple-800/40 bg-purple-950/40 p-3.5">
+                <div>
+                  <span className="text-xs font-semibold text-white">Auto-Runner State</span>
+                  <p className="text-[11px] text-purple-300/80">
+                    {projSettings.autorunner?.enabled ? 'Active · Continuous dispatch enabled' : 'Paused · Dispatches require manual trigger'}
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.autorunner?.enabled || false}
+                    onChange={(e) => {
+                      const current = projSettings.autorunner || {
+                        enabled: false,
+                        project_slug: project.slug,
+                        interval_seconds: 30,
+                        max_concurrent_workers: 4,
+                        auto_merge_clean_reviews: true,
+                        token_ceiling: 2500000,
+                        circuit_breaker_tripped: false,
+                        tripped_reason: '',
+                        tokens_spent_session: 0,
+                        consecutive_failures: 0,
+                      }
+                      updateSettings({
+                        autorunner: { ...current, enabled: e.target.checked },
+                      })
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-300 font-semibold">Max Concurrent Workers</span>
+                    <span className="font-mono text-purple-300">
+                      {projSettings.autorunner?.max_concurrent_workers ?? 4} parallel agents
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    value={projSettings.autorunner?.max_concurrent_workers ?? 4}
+                    onChange={(e) => {
+                      const current = projSettings.autorunner || {
+                        enabled: false,
+                        project_slug: project.slug,
+                        interval_seconds: 30,
+                        max_concurrent_workers: 4,
+                        auto_merge_clean_reviews: true,
+                        token_ceiling: 2500000,
+                        circuit_breaker_tripped: false,
+                        tripped_reason: '',
+                        tokens_spent_session: 0,
+                        consecutive_failures: 0,
+                      }
+                      updateSettings({
+                        autorunner: { ...current, max_concurrent_workers: Number(e.target.value) },
+                      })
+                    }}
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-300 font-semibold">Token Budget Ceiling</span>
+                    <span className="font-mono text-purple-300">
+                      {((projSettings.autorunner?.token_ceiling ?? 2500000) / 1000000).toFixed(2)}M tokens
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={500000}
+                    max={10000000}
+                    step={250000}
+                    value={projSettings.autorunner?.token_ceiling ?? 2500000}
+                    onChange={(e) => {
+                      const current = projSettings.autorunner || {
+                        enabled: false,
+                        project_slug: project.slug,
+                        interval_seconds: 30,
+                        max_concurrent_workers: 4,
+                        auto_merge_clean_reviews: true,
+                        token_ceiling: 2500000,
+                        circuit_breaker_tripped: false,
+                        tripped_reason: '',
+                        tokens_spent_session: 0,
+                        consecutive_failures: 0,
+                      }
+                      updateSettings({
+                        autorunner: { ...current, token_ceiling: Number(e.target.value) },
+                      })
+                    }}
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
+                </div>
+
+                <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={projSettings.autorunner?.auto_merge_clean_reviews !== false}
+                    onChange={(e) => {
+                      const current = projSettings.autorunner || {
+                        enabled: false,
+                        project_slug: project.slug,
+                        interval_seconds: 30,
+                        max_concurrent_workers: 4,
+                        auto_merge_clean_reviews: true,
+                        token_ceiling: 2500000,
+                        circuit_breaker_tripped: false,
+                        tripped_reason: '',
+                        tokens_spent_session: 0,
+                        consecutive_failures: 0,
+                      }
+                      updateSettings({
+                        autorunner: { ...current, auto_merge_clean_reviews: e.target.checked },
+                      })
+                    }}
+                  />
+                  Auto-merge clean approved reviews without human click
+                </label>
+
+                <div className="pt-3 border-t border-purple-800/30 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={steppingAutorunner}
+                    onClick={handleStepAutorunnerNow}
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white shadow-md shadow-purple-600/30 cursor-pointer disabled:opacity-50"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    {steppingAutorunner ? 'Executing Cycle...' : 'Step Auto-Runner Once Now'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

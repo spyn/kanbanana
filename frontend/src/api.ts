@@ -1,9 +1,12 @@
 import type {
   AgentInfo,
   AgentProfile,
+  AutoRunnerStatus,
   BoardMessage,
   FeatureLock,
   GlobalSettings,
+  GrillChatMessage,
+  GrillChatResponse,
   Project,
   ProjectWorktreesOverview,
   ResolvedLaneRoutingPlan,
@@ -548,5 +551,31 @@ export const api = {
     }>(`/api/projects/${slug}/tickets/${code}/claim-with-agent`, {
       method: 'POST',
       body: JSON.stringify(body),
+    }),
+
+  // Auto-Runner
+  getAutorunnerStatus: () => request<AutoRunnerStatus>('/api/autorunner/status'),
+  startAutorunner: (projectSlug: string = 'default') =>
+    request<AutoRunnerStatus>(`/api/autorunner/start?project_slug=${encodeURIComponent(projectSlug)}`, { method: 'POST' }),
+  stopAutorunner: () => request<AutoRunnerStatus>('/api/autorunner/stop', { method: 'POST' }),
+  stepAutorunner: (projectSlug: string = 'default') =>
+    request<any>(`/api/autorunner/step?project_slug=${encodeURIComponent(projectSlug)}`, { method: 'POST' }),
+
+  // Watchdog
+  checkWatchdog: (projectSlug?: string) =>
+    request<any>(`/api/watchdog/check${projectSlug ? `?project_slug=${encodeURIComponent(projectSlug)}` : ''}`, { method: 'POST' }),
+
+  // Grill Me Interview
+  getGrillChat: (slug: string, code: string) =>
+    request<GrillChatResponse>(`/api/projects/${slug}/tickets/${code}/grill-chat`),
+  postGrillChat: (slug: string, code: string, message: string) =>
+    request<GrillChatResponse>(`/api/projects/${slug}/tickets/${code}/grill-chat`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+  generateGrillProposals: (slug: string, code: string, history: GrillChatMessage[], autoPromote: boolean = false) =>
+    request<Ticket>(`/api/projects/${slug}/tickets/${code}/grill-proposals`, {
+      method: 'POST',
+      body: JSON.stringify({ history, auto_promote: autoPromote }),
     }),
 }

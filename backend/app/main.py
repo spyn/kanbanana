@@ -93,6 +93,8 @@ def ensure_safe_bind_auth(host: str) -> str:
 
 
 def _is_protected_http_path(path: str) -> bool:
+    if path.startswith("/api/webhooks/"):
+        return False
     return (
         path.startswith("/api/")
         or path == "/mcp"
@@ -120,8 +122,34 @@ def create_app(db_path: str | Path | None = None, auto_seed: bool = True) -> Fas
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with mcp_http_app.lifespan(app):
-            yield
+        import asyncio
+        from .agent_manager import run_watchdog_cycle
+
+        stop_event = asyncio.Event()
+
+        async def _background_watchdog_loop():
+            while not stop_event.is_set():
+                try:
+                    await asyncio.sleep(30)
+                    gs = db.get_global_settings()
+                    if gs.get("watchdog", {}).get("enabled", True):
+                        run_watchdog_cycle(db)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    pass
+
+        bg_task = asyncio.create_task(_background_watchdog_loop())
+        try:
+            async with mcp_http_app.lifespan(app):
+                yield
+        finally:
+            stop_event.set()
+            bg_task.cancel()
+            try:
+                await bg_task
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(
         title="Kanbanana — Agent-First Kanban & MCP Server",

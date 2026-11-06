@@ -70,6 +70,60 @@ export interface LaneConfig {
   lane_source?: 'global' | 'project'
 }
 
+export interface GiteaWebhookConfig {
+  secret: string
+  auto_transition_on_fixes: boolean
+  auto_done_on_pr_merge: boolean
+  dispatch_reviewer_on_pr?: boolean
+}
+
+export interface WatchdogConfig {
+  enabled: boolean
+  interval_seconds: number
+  stall_threshold_minutes: number
+  action: 'block' | 'reset-to-todo' | 'alert-only'
+  auto_release_locks: boolean
+}
+
+export interface AutoRunnerConfig {
+  enabled: boolean
+  project_slug: string
+  interval_seconds: number
+  max_concurrent_workers: number
+  auto_merge_clean_reviews: boolean
+  token_ceiling: number
+  circuit_breaker_tripped: boolean
+  tripped_reason: string
+  tokens_spent_session: number
+  consecutive_failures: number
+}
+
+export interface AutoRunnerStatus {
+  running: boolean
+  project_slug: string
+  last_run?: string | null
+  last_result?: any
+  tokens_spent_session: number
+  consecutive_failures: number
+  circuit_breaker_tripped: boolean
+  tripped_reason: string
+  config: AutoRunnerConfig
+}
+
+export interface GrillChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: string
+}
+
+export interface GrillChatResponse {
+  reply: string
+  messages: GrillChatMessage[]
+  suggested_quick_replies: string[]
+  can_generate_proposals: boolean
+  draft_proposals: TicketProposal[]
+}
+
 export interface ProjectSettings {
   branch_prefix: string
   token_ceiling_override?: number | null
@@ -79,6 +133,9 @@ export interface ProjectSettings {
   lane_configs: Record<string, LaneConfig>
   custom_skills: ManagedSkillSpec[]
   systemone_config?: SystemOneConfig | null
+  gitea_webhook?: GiteaWebhookConfig
+  watchdog?: WatchdogConfig
+  autorunner?: AutoRunnerConfig
 }
 
 export interface GlobalSettings {
@@ -97,6 +154,8 @@ export interface GlobalSettings {
   managed_skills: ManagedSkillSpec[]
   lane_configs: Record<string, LaneConfig>
   systemone_config?: SystemOneConfig
+  watchdog?: WatchdogConfig
+  autorunner?: AutoRunnerConfig
   provider_model_catalog?: Record<string, A2AModelSpec[]>
   updated_at?: string | null
 }

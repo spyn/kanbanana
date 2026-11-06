@@ -116,6 +116,33 @@
 - **Autonomous Dispatch & Claim Protection:** When a ticket is on hold, autonomous agent lane dispatchers, `pick_next_todo`, `claim_ticket`, `claim_ticket_with_agent`, and `get_project_onboarding` strictly skip or reject claims with HTTP 409. Agents are prevented from accidentally claiming, restarting, or token-looping on paused work.
 - **Clear Visual Distinction:** Held cards on the board feature a dimmed background, dashed amber border, an amber `HOLD` badge, and a disabled quick-claim indicator. The ticket modal surfaces an amber callout banner and a 1-click **"Resume Work"** toggle (`POST .../resume` / `resume_ticket`).
 
+### 14. 🌙 The "Let the Fleet Cook" Overnight Auto-Runner
+- **Autonomous Pipeline Orchestration:** A background coordinator loop (`POST /api/autorunner/step`, `start`, `stop`) that keeps the autonomous engineering fleet making continuous forward progress overnight without human bottlenecks.
+- **Autonomous Review Auto-Merge:** Automatically identifies tickets in `review` with clean, passing cross-vendor reviews (`APPROVE` verdict with 0 code issues and 0 security issues) and auto-merges them into `done`, clearing review bottlenecks autonomously.
+- **Concurrency & Token Ceiling Enforcement:** Continuously claims and dispatches unblocked `todo` tasks up to a configured concurrency ceiling (e.g. 2–16 parallel agents), safely halting dispatches if total token spend crosses the session budget ceiling.
+- **Header HUD Popover & Real-Time Controls:** Interactive **🌙 Auto-Runner** status pill in the top navigation bar displays active/paused state, token consumption against budget, worker concurrency, and a single-step trigger button.
+
+### 15. 🪝 Native Gitea / Git Webhooks & Push/PR Automation
+- **Direct Git Forge Integration:** Unauthenticated or HMAC secret-verified webhook endpoints (`POST /api/webhooks/gitea`, `/api/webhooks/git`) connecting Kanbanana directly to on-premises Gitea or GitHub repositories.
+- **Smart Commit Parsing:** Scans commit messages for standard issue resolution keywords (`Fixes KAN-12`, `Resolves KAN-14`, `Refs KAN-15`), automatically moving in-progress tickets to `review` and pinning commit sha/author notes.
+- **Pull Request Lifecycle Triggers:** Opening a PR links the branch and dispatches adversarial cross-vendor reviewers; merging a PR marks the ticket `done` and stamps merge metadata onto the ticket.
+- **Configuration & 1-Click Copy:** Dedicated **Automations, Webhooks & Watchdog** project settings subtab provides a ready-to-paste Webhook URL, secret token visibility toggle, and granular event triggers.
+
+### 16. ⏱️ Dead-Agent Auto-Recovery & Stalled Task Watchdog
+- **Silent & Hung Agent Remediation:** An asynchronous background watchdog task periodically monitors active tasks for agent silence. If an in-progress ticket exceeds the configured stall threshold (e.g. 15 minutes without heartbeats or updates), the watchdog intervenes automatically.
+- **FIFO Lock Auto-Release:** Automatically frees any exclusive or shared GPU/hardware locks held by the hung agent, preventing deadlock cascades across the rest of the fleet.
+- **Configurable Recovery Action:** Transitions stalled tickets to `blocked` (with an automated diagnostic note) or resets them to `todo` for immediate re-dispatch by a fresh worker.
+- **Agent Watercooler Alerts:** Posts an urgent recovery notification to the `#agents` message board channel so engineers and peer agents have immediate visibility into the stalled task recovery.
+
+### 17. 🎙️ Live Interactive "Grill Me" Socratic Triage Drawer
+- **Deep Alignment via Socratic Dialogue:** Clicking **"🎙️ Grill Me"** on any `triage` ticket opens an interactive slide-over chat drawer powered by the configured Frontier Orchestrator.
+- **Four-Pillar Architectural Interrogation:** Systematically drills down on:
+  1. *Exactness & Invariants* (numerical precision, edge cases, invariants).
+  2. *Hardware Targets & Performance Budgets* (GPU requirements, latency/VRAM constraints).
+  3. *Out-of-Scope Boundaries* (explicit `Do NOT Touch` lists to protect mid-tier workers).
+  4. *Deterministic Verification Commands* (exact runnable CLI test assertions).
+- **Suggested Quick Replies & Auto-Breakdown:** Surfaces dynamic 1-click suggested answers to speed up alignment, and allows 1-click generation of worker-ready sub-ticket proposals (`files_md`, `do_md`, `done_when_md`) that can be approved directly into the backlog.
+
 ---
 
 ## 🧠 Orchestrator–Worker Routing Matrix & Economics
@@ -306,7 +333,11 @@ tests/test_kanbanana.py::test_agentplay_transcript_file_and_command_extraction P
 tests/test_kanbanana.py::test_security_and_performance_review_remediations PASSED
 tests/test_kanbanana.py::test_systemone_dynamic_router_and_connection_probe PASSED
 tests/test_kanbanana.py::test_ticket_hold_and_resume_lifecycle PASSED
-============================= 17 passed in 9.97s =============================
+tests/test_kanbanana.py::test_gitea_webhook_push_and_pr_events PASSED
+tests/test_kanbanana.py::test_dead_agent_watchdog_auto_recovery PASSED
+tests/test_kanbanana.py::test_autorunner_pipeline_cycle PASSED
+tests/test_kanbanana.py::test_grill_me_interview_and_proposals PASSED
+============================= 21 passed in 14.88s =============================
 ```
 
 ---
@@ -372,7 +403,7 @@ To manually connect any MCP client (Claude Desktop, Cline, Roo Code, Cursor), ad
 - **Task Claiming & Worktrees**: `pick_next_todo`, `claim_ticket`, `hold_ticket`, `resume_ticket`, `create_todo_ticket`, `update_ticket_progress`, `add_ticket_note`
 - **Triage & External Scans**: `create_triage_ticket`, `claim_triage_ticket`, `submit_triage_research_findings`, `ask_triage_questions`, `propose_todo_tickets`
 - **Mid-Tier Code Review**: `inspect_review_ticket`, `review_ticket` *(with automated `git merge` / `gh pr merge` gate)*
-- **Locks & Telemetry**: `acquire_lock`, `release_lock`, `heartbeat_lock`, `heartbeat_agent`, `list_active_agents`, `report_agent_usage_exhausted`, `scan_a2a_agents`, `post_message`, `list_messages`
+- **Locks & Telemetry**: `acquire_lock`, `release_lock`, `heartbeat_lock`, `heartbeat_agent`, `list_active_agents`, `report_agent_usage_exhausted`, `scan_a2a_agents`, `post_message`, `list_messages`, `check_watchdog`, `trigger_autorunner_step`
 - **MCP Resources**:
   - `skill://{project_slug}/SKILL.md` — Project onboarding & lock rules
   - `skill://{project_slug}/CODE_REVIEW_SKILL.md` — Mid-tier model review & security gate

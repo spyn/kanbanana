@@ -10,6 +10,8 @@ from .agent_manager import (
     inspect_review_branch_and_static_scan,
     merge_ticket_branch_or_pr,
     resolve_or_virtual_profile,
+    run_auto_runner_cycle,
+    run_watchdog_cycle,
     trigger_lane_auto_dispatch,
 )
 from .db import Database
@@ -961,6 +963,29 @@ def create_mcp_server(db: Database) -> FastMCP:
             }
             for p in profiles
         ]
+
+    @mcp.tool()
+    def check_watchdog(
+        project_slug: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Check for stalled agent tasks across the board.
+        Releases held locks and marks silent tasks as `blocked` for peer recovery.
+        """
+        slug = resolve_slug(project_slug) if project_slug else None
+        return run_watchdog_cycle(db, project_slug=slug)
+
+    @mcp.tool()
+    def trigger_autorunner_step(
+        project_slug: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Execute one cycle of the Overnight Auto-Runner:
+        Auto-merges clean approved reviews into `done`, auto-dispatches adversarial reviewers,
+        and dispatches unblocked TODO tasks up to concurrency capacity.
+        """
+        slug = resolve_slug(project_slug)
+        return run_auto_runner_cycle(db, project_slug=slug)
 
     # ------------------------------------------------------------------
     # MCP Resources & Prompt Templates

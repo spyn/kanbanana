@@ -2442,3 +2442,230 @@ class Database:
         with self.connect(immediate=True) as conn:
             conn.execute("DELETE FROM agent_profiles WHERE id = ?", (profile_id,))
 
+    # ------------------------------------------------------------------
+    # Dead-Agent Watchdog, Auto-Runner & Grill Me Helpers
+    # ------------------------------------------------------------------
+    def check_and_recover_stalled_tasks(
+        self,
+        project_slug: Optional[str] = None,
+        stall_threshold_minutes: int = 15,
+        action: str = "block",
+        auto_release_locks: bool = True,
+    ) -> list[dict[str, Any]]:
+        threshold_sec = max(1, stall_threshold_minutes) * 60
+        now_dt = datetime.now(timezone.utc)
+        cutoff_iso = (now_dt - timedelta(seconds=threshold_sec)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with self.connect(immediate=True) as conn:
+            proj_clause = ""
+            params: list[Any] = []
+            if project_slug:
+                proj = conn.execute("SELECT id, slug FROM projects WHERE slug = ?", (project_slug,)).fetchone()
+                if not proj:
+                    return []
+                proj_clause = "AND t.project_id = ?"
+                params.append(proj["id"])
+
+            query = f"""
+                SELECT t.*, p.slug as project_slug, COALESCE(a.last_seen_at, t.updated_at) as effective_last_seen
+                FROM tickets t
+                JOIN projects p ON t.project_id = p.id
+                LEFT JOIN agents a ON t.owner = a.id AND t.project_id = a.project_id
+                WHERE t.status IN ('in-progress', 'review')
+                  AND t.owner IS NOT NULL
+                  AND t.owner NOT IN ('', '-', '—')
+                  AND t.is_held = 0
+                  AND (t.updated_at < ? OR t.updated_at IS NULL)
+                  AND (a.last_seen_at < ? OR a.last_seen_at IS NULL)
+                  {proj_clause}
+                ORDER BY t.updated_at ASC
+            """
+            rows = conn.execute(query, [cutoff_iso, cutoff_iso] + params).fetchall()
+            stalled: list[dict[str, Any]] = []
+
+            ts = now_iso()
+            for r in rows:
+                tid = r["id"]
+                code = r["code"]
+                owner = r["owner"]
+                p_slug = r["project_slug"]
+                released_locks: list[str] = []
+
+                if auto_release_locks:
+                    held_claims = conn.execute(
+                        """
+                        SELECT lc.id, lc.lock_id, fl.name as lock_name
+                        FROM lock_claims lc
+                        JOIN feature_locks fl ON lc.lock_id = fl.id
+                        WHERE lc.status = 'held' AND (lc.ticket_code = ? OR lc.agent_id = ?)
+                        """,
+                        (code, owner),
+                    ).fetchall()
+                    for hc in held_claims:
+                        conn.execute(
+                            "UPDATE lock_claims SET status = 'released', released_at = ? WHERE id = ?",
+                            (ts, hc["id"]),
+                        )
+                        self._promote_queued_claims(conn, hc["lock_id"])
+                        released_locks.append(hc["lock_name"])
+
+                new_status = "blocked" if action == "block" else "todo"
+                blocked_reason = (
+                    f"Dead-Agent Watchdog: Agent '{owner}' stalled (silent for >{stall_threshold_minutes}m)."
+                    if new_status == "blocked"
+                    else ""
+                )
+                new_owner = owner if new_status == "blocked" else ""
+                conn.execute(
+                    """
+                    UPDATE tickets
+                    SET status = ?, owner = ?, blocked_reason = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (new_status, new_owner, blocked_reason, ts, tid),
+                )
+
+                note_body = (
+                    f"⏱️ **Dead-Agent Watchdog**: Agent `{owner}` stalled without heartbeat or updates for "
+                    f">`{stall_threshold_minutes}m`.\n"
+                    f"- **Action Taken**: Ticket moved to `{new_status}` for recovery / peer handover.\n"
+                    + (f"- **Released Locks**: {', '.join(released_locks)}\n" if released_locks else "")
+                )
+                conn.execute(
+                    """
+                    INSERT INTO ticket_notes (id, ticket_id, author, kind, content_md, created_at)
+                    VALUES (?, ?, 'watchdog', 'system', ?, ?)
+                    """,
+                    (str(uuid.uuid4()), tid, note_body, ts),
+                )
+
+                # Post alert to #agents channel
+                conn.execute(
+                    """
+                    INSERT INTO messages (id, project_id, author, channel, title, body_md, ticket_code, pinned, created_at)
+                    VALUES (?, ?, 'watchdog', 'agents', ?, ?, ?, 0, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        r["project_id"],
+                        f"Watchdog recovered stalled ticket {code} ({owner})",
+                        note_body,
+                        code,
+                        ts,
+                    ),
+                )
+
+                stalled.append({
+                    "code": code,
+                    "ticket_code": code,
+                    "project_slug": p_slug,
+                    "previous_status": r["status"],
+                    "new_status": new_status,
+                    "action": action,
+                    "agent_id": owner,
+                    "released_locks": released_locks,
+                    "released_locks_count": len(released_locks),
+                })
+
+            return stalled
+
+    def get_autorunner_queue(self, project_slug: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            proj = conn.execute("SELECT id, slug FROM projects WHERE slug = ?", (project_slug,)).fetchone()
+            if not proj:
+                raise ValueError(f"Project '{project_slug}' not found")
+            pid = proj["id"]
+
+            all_t = conn.execute("SELECT code, status FROM tickets WHERE project_id = ?", (pid,)).fetchall()
+            status_map = {r["code"]: r["status"] for r in all_t}
+
+            todo_rows = conn.execute(
+                """
+                SELECT t.*, COALESCE(s.position, 999) as sec_pos
+                FROM tickets t
+                LEFT JOIN sections s ON t.section_id = s.id
+                WHERE t.project_id = ? AND t.status = 'todo' AND t.is_held = 0
+                ORDER BY sec_pos ASC, t.position ASC, t.created_at ASC
+                """,
+                (pid,),
+            ).fetchall()
+            claimable_todos = []
+            for r in todo_rows:
+                deps = json.loads(r["depends_on_json"] or "[]")
+                if all(status_map.get(d) in ("done", "review") for d in deps):
+                    claimable_todos.append(self._format_ticket(conn, r, status_map=status_map))
+
+            in_prog_rows = conn.execute(
+                "SELECT * FROM tickets WHERE project_id = ? AND status = 'in-progress' AND is_held = 0 ORDER BY updated_at DESC",
+                (pid,),
+            ).fetchall()
+            active_in_progress = [self._format_ticket(conn, r, status_map=status_map) for r in in_prog_rows]
+
+            rev_rows = conn.execute(
+                "SELECT * FROM tickets WHERE project_id = ? AND status = 'review' AND is_held = 0 ORDER BY updated_at DESC",
+                (pid,),
+            ).fetchall()
+            pending_reviews = [
+                self._format_ticket(conn, r, include_notes=True, status_map=status_map)
+                for r in rev_rows
+            ]
+
+            return {
+                "claimable_todos": claimable_todos,
+                "active_in_progress": active_in_progress,
+                "pending_reviews": pending_reviews,
+            }
+
+    def get_ticket_grill_chat(self, project_slug: str, code: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            proj = conn.execute("SELECT id FROM projects WHERE slug = ?", (project_slug,)).fetchone()
+            if not proj:
+                return []
+            trow = conn.execute(
+                "SELECT id FROM tickets WHERE project_id = ? AND UPPER(code) = UPPER(?)",
+                (proj["id"], code),
+            ).fetchone()
+            if not trow:
+                return []
+            rows = conn.execute(
+                "SELECT * FROM ticket_notes WHERE ticket_id = ? AND kind = 'grill-chat' ORDER BY created_at ASC",
+                (trow["id"],),
+            ).fetchall()
+            return [
+                {
+                    "role": r["author"],
+                    "content": r["content_md"],
+                    "timestamp": r["created_at"],
+                }
+                for r in rows
+            ]
+
+    def add_ticket_grill_message(
+        self, project_slug: str, code: str, role: str, content: str
+    ) -> dict[str, Any]:
+        with self.connect(immediate=True) as conn:
+            proj = conn.execute("SELECT id FROM projects WHERE slug = ?", (project_slug,)).fetchone()
+            if not proj:
+                raise ValueError(f"Project '{project_slug}' not found")
+            trow = conn.execute(
+                "SELECT id FROM tickets WHERE project_id = ? AND UPPER(code) = UPPER(?)",
+                (proj["id"], code),
+            ).fetchone()
+            if not trow:
+                raise ValueError(f"Ticket '{code}' not found")
+            ts = now_iso()
+            mid = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO ticket_notes (id, ticket_id, author, kind, content_md, created_at)
+                VALUES (?, ?, ?, 'grill-chat', ?, ?)
+                """,
+                (mid, trow["id"], role, content, ts),
+            )
+            return {
+                "id": mid,
+                "role": role,
+                "content": content,
+                "timestamp": ts,
+            }
+

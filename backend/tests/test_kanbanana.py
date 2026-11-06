@@ -1753,6 +1753,268 @@ async def test_ticket_hold_and_resume_lifecycle(test_app):
     assert res_resume.json()["is_held"] is False
 
 
+def test_gitea_webhook_push_and_pr_events(test_app):
+    db = test_app.state.db
+    import_current_state_into_db(db, DOCS_DIR, project_slug="allpaca")
+    client = TestClient(test_app)
+
+    # 1. Update project settings to configure gitea webhook with secret
+    proj = db.get_project("allpaca")
+    ps = proj.get("project_settings") or {}
+    ps["gitea_webhook"] = {
+        "secret": "topsecret123",
+        "auto_transition_on_fixes": True,
+        "auto_done_on_pr_merge": True,
+        "dispatch_reviewer_on_pr": True,
+    }
+    patch_res = client.patch("/api/projects/allpaca", json={"project_settings": ps})
+    assert patch_res.status_code == 200
+
+    # 2. Push with bad secret -> 401
+    bad_res = client.post(
+        "/api/webhooks/gitea",
+        json={"repository": {"name": "allpaca"}, "commits": [{"message": "Fixes R3"}]},
+        headers={"X-Gitea-Token": "wrong-secret"},
+    )
+    assert bad_res.status_code == 401
+
+    # 3. Push commit with 'Fixes R3' -> moves R3 to review
+    db.claim_ticket("allpaca", "R3", "worker-agent")
+    push_res = client.post(
+        "/api/webhooks/gitea",
+        json={
+            "repository": {"name": "allpaca"},
+            "commits": [
+                {
+                    "id": "c0ffee123456",
+                    "message": "Fixes R3 in contiguous memory allocator\n\nResolves R3 benchmark errors",
+                    "author": {"name": "Worker Dev"},
+                }
+            ],
+        },
+        headers={"X-Gitea-Token": "topsecret123"},
+    )
+    assert push_res.status_code == 200
+    t = db.get_ticket("allpaca", "R3")
+    assert t["status"] == "review"
+    assert any("c0ffee12" in n["content_md"] for n in t["notes"])
+
+    # 4. Pull request opened -> logs PR note
+    pr_res = client.post(
+        "/api/webhooks/gitea",
+        json={
+            "repository": {"name": "allpaca"},
+            "action": "opened",
+            "pull_request": {
+                "number": 42,
+                "title": "PR for R3: contiguous memory allocator",
+                "body": "Fixes R3. All tests pass.",
+                "html_url": "https://gitea.local/spyn/allpaca/pulls/42",
+                "head": {"ref": "board/r3-contiguous"},
+                "merged": False,
+            },
+        },
+        headers={"X-Gitea-Token": "topsecret123"},
+    )
+    assert pr_res.status_code == 200
+    t = db.get_ticket("allpaca", "R3")
+    assert any("PR #42" in n["content_md"] for n in t["notes"])
+
+    # 5. Pull request merged -> moves R3 to done
+    merge_res = client.post(
+        "/api/webhooks/gitea",
+        json={
+            "repository": {"name": "allpaca"},
+            "action": "closed",
+            "pull_request": {
+                "number": 42,
+                "title": "PR for R3: contiguous memory allocator",
+                "body": "Fixes R3.",
+                "html_url": "https://gitea.local/spyn/allpaca/pulls/42",
+                "head": {"ref": "board/r3-contiguous"},
+                "merged": True,
+                "merged_by": {"username": "lead-maintainer"},
+            },
+        },
+        headers={"X-Gitea-Token": "topsecret123"},
+    )
+    assert merge_res.status_code == 200
+    t = db.get_ticket("allpaca", "R3")
+    assert t["status"] == "done"
+    assert any("PR #42" in n["content_md"] and "Merged" in n["content_md"] for n in t["notes"])
+
+
+@pytest.mark.asyncio
+async def test_dead_agent_watchdog_auto_recovery(test_app):
+    from datetime import datetime, timezone, timedelta
+    from fastmcp import Client
+
+    db = test_app.state.db
+    mcp = test_app.state.mcp
+    import_current_state_into_db(db, DOCS_DIR, project_slug="allpaca")
+    client = TestClient(test_app)
+
+    # 1. Configure project watchdog with 5 minute threshold
+    proj = db.get_project("allpaca")
+    ps = proj.get("project_settings") or {}
+    ps["watchdog"] = {
+        "enabled": True,
+        "interval_seconds": 60,
+        "stall_threshold_minutes": 5,
+        "action": "block",
+        "auto_release_locks": True,
+    }
+    patch_res = client.patch("/api/projects/allpaca", json={"project_settings": ps})
+    assert patch_res.status_code == 200
+
+    # 2. Claim R3 and acquire a FIFO lock
+    db.claim_ticket("allpaca", "R3", "hung-agent")
+    lock_res = client.post(
+        "/api/locks/gpu:gfx1201-bench/acquire",
+        json={"agent_id": "hung-agent", "ticket_code": "R3", "reason": "Benchmark run"},
+    )
+    assert lock_res.status_code == 200
+
+    # Make heartbeat and updated_at 30 minutes in the past
+    stale_ts = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    with db.connect(immediate=True) as conn:
+        conn.execute(
+            "UPDATE tickets SET updated_at = ? WHERE UPPER(code) = 'R3'",
+            (stale_ts,),
+        )
+        conn.execute(
+            "UPDATE agents SET last_seen_at = ? WHERE id = 'hung-agent'",
+            (stale_ts,),
+        )
+
+    # 3. Check watchdog via REST endpoint
+    res = client.post("/api/watchdog/check", params={"project_slug": "allpaca"})
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["recovered"]) >= 1
+    recovered_entry = [r for r in data["recovered"] if r["code"] == "R3"][0]
+    assert recovered_entry["action"] == "block"
+    assert recovered_entry["released_locks_count"] >= 1
+
+    # 4. Verify ticket is now blocked
+    t = db.get_ticket("allpaca", "R3")
+    assert t["status"] == "blocked"
+    assert any("Watchdog" in n["content_md"] for n in t["notes"])
+
+    # 5. Verify lock is released
+    locks = db.list_locks("allpaca")
+    bench_lock = next((l for l in locks if l["name"] == "gpu:gfx1201-bench"), None)
+    assert bench_lock is None or bench_lock.get("holder_agent_id") != "hung-agent"
+
+    # 6. Verify FastMCP tool check_watchdog works
+    async with Client(mcp) as mcp_client:
+        mcp_res = await mcp_client.call_tool("check_watchdog", {})
+        assert "recovered_count" in mcp_res.data
+
+
+@pytest.mark.asyncio
+async def test_autorunner_pipeline_cycle(test_app):
+    from fastmcp import Client
+
+    db = test_app.state.db
+    mcp = test_app.state.mcp
+    import_current_state_into_db(db, DOCS_DIR, project_slug="allpaca")
+    client = TestClient(test_app)
+
+    # 1. Check initial status
+    st0 = client.get("/api/autorunner/status").json()
+    assert "running" in st0
+    assert "tokens_spent_session" in st0
+
+    # 2. Start autorunner
+    start_res = client.post("/api/autorunner/start", params={"project_slug": "allpaca"})
+    assert start_res.status_code == 200
+    assert start_res.json()["running"] is True
+
+    # 3. Create a clean approved review ticket ready for auto-merging
+    db.review_ticket(
+        "allpaca",
+        "S1",
+        reviewer_agent_id="reviewer-sonnet",
+        verdict="approve",
+        review_md="Clean code review verified.",
+        reviewer_model="claude-sonnet-4-5",
+        code_issues=[],
+        security_issues=[],
+        exactness_level="exact",
+        hold_in_review=True,
+    )
+    s1 = db.get_ticket("allpaca", "S1")
+    assert s1["status"] == "review"
+
+    # Step the autorunner
+    step_res = client.post("/api/autorunner/step", params={"project_slug": "allpaca"})
+    assert step_res.status_code == 200
+    res_data = step_res.json()
+    merged_codes = [m["code"] for m in res_data.get("auto_merged_reviews", [])]
+    assert "S1" in merged_codes
+
+    s1_after = db.get_ticket("allpaca", "S1")
+    assert s1_after["status"] == "done"
+
+    # 4. Stop autorunner
+    stop_res = client.post("/api/autorunner/stop")
+    assert stop_res.status_code == 200
+    assert stop_res.json()["running"] is False
+
+    # 5. FastMCP trigger_autorunner_step
+    async with Client(mcp) as mcp_client:
+        res = await mcp_client.call_tool("trigger_autorunner_step", {"project_slug": "allpaca"})
+        assert "dispatched_todos" in res.data
+
+
+def test_grill_me_interview_and_proposals(test_app):
+    db = test_app.state.db
+    import_current_state_into_db(db, DOCS_DIR, project_slug="allpaca")
+    client = TestClient(test_app)
+
+    # 1. Ensure a triage ticket exists
+    code = "TR-GRILL"
+    client.post(
+        "/api/projects/allpaca/tickets",
+        json={
+            "code": code,
+            "title": "AVX-512 Tensor Contraction Kernel",
+            "description": "Implement high-throughput tensor contraction for FP16 weights.",
+            "status": "triage",
+        },
+    )
+
+    # 2. Get initial grill chat
+    chat_get = client.get(f"/api/projects/allpaca/tickets/{code}/grill-chat")
+    assert chat_get.status_code == 200
+    assert "messages" in chat_get.json()
+
+    # 3. Post user answer in grill chat
+    post_chat = client.post(
+        f"/api/projects/allpaca/tickets/{code}/grill-chat",
+        json={"message": "Target hardware is gfx1201 only. Exact bitwise reproducibility is mandatory."},
+    )
+    assert post_chat.status_code == 200
+    chat_data = post_chat.json()
+    assert chat_data["reply"]
+    assert len(chat_data["messages"]) >= 2
+    assert len(chat_data["suggested_quick_replies"]) > 0
+
+    # 4. Generate structured proposals and auto-promote
+    prop_res = client.post(
+        f"/api/projects/allpaca/tickets/{code}/grill-proposals",
+        json={"auto_promote": True},
+    )
+    assert prop_res.status_code == 200
+    prop_data = prop_res.json()
+    assert "proposals" in prop_data or "status" in prop_data
+    t = db.get_ticket("allpaca", code)
+    assert t["status"] in ("done", "todo", "triage")
+    notes = [n["content_md"] for n in t["notes"]]
+    assert any("Grill" in n or "Proposals" in n or "breakdown" in n.lower() for n in notes)
+
+
 
 
 

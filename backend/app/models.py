@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 TicketStatus = Literal["triage", "todo", "in-progress", "review", "blocked", "done"]
 TriageState = Literal["new", "researching", "needs-info", "proposed", "approved"]
-NoteKind = Literal["note", "review", "question", "answer", "handoff", "system"]
+NoteKind = Literal["note", "review", "question", "answer", "handoff", "system", "grill-chat"]
 ProposalStatus = Literal["pending", "approved", "rejected"]
 AgentStatus = Literal["active", "idle", "out-of-usage", "offline"]
 LockClaimStatus = Literal["held", "queued", "released", "expired"]
@@ -86,6 +86,34 @@ class LaneConfig(BaseModel):
     agent_rules: dict[str, AgentLaneRule] = Field(default_factory=dict)
 
 
+class GiteaWebhookConfig(BaseModel):
+    secret: str = ""
+    auto_transition_on_fixes: bool = True
+    auto_done_on_pr_merge: bool = True
+    dispatch_reviewer_on_pr: bool = True
+
+
+class WatchdogConfig(BaseModel):
+    enabled: bool = True
+    interval_seconds: int = 30
+    stall_threshold_minutes: int = 15
+    action: str = "block"  # 'block', 'reset-to-todo', 'alert-only'
+    auto_release_locks: bool = True
+
+
+class AutoRunnerConfig(BaseModel):
+    enabled: bool = False
+    project_slug: str = "default"
+    interval_seconds: int = 15
+    max_concurrent_workers: int = 2
+    auto_merge_clean_reviews: bool = True
+    token_ceiling: int = 2_000_000
+    circuit_breaker_tripped: bool = False
+    tripped_reason: str = ""
+    tokens_spent_session: int = 0
+    consecutive_failures: int = 0
+
+
 class ProjectSettings(BaseModel):
     branch_prefix: str = "board/"
     token_ceiling_override: Optional[int] = None
@@ -95,6 +123,9 @@ class ProjectSettings(BaseModel):
     lane_configs: dict[str, LaneConfig] = Field(default_factory=dict)
     custom_skills: list[ManagedSkillSpec] = Field(default_factory=list)
     systemone_config: Optional[SystemOneConfig] = None
+    gitea_webhook: GiteaWebhookConfig = Field(default_factory=GiteaWebhookConfig)
+    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
+    autorunner: AutoRunnerConfig = Field(default_factory=AutoRunnerConfig)
 
 
 class GlobalSettings(BaseModel):
@@ -115,6 +146,8 @@ class GlobalSettings(BaseModel):
     managed_skills: list[ManagedSkillSpec] = Field(default_factory=list)
     lane_configs: dict[str, LaneConfig] = Field(default_factory=dict)
     systemone_config: SystemOneConfig = Field(default_factory=SystemOneConfig)
+    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
+    autorunner: AutoRunnerConfig = Field(default_factory=AutoRunnerConfig)
 
 
 class GlobalSettingsUpdate(BaseModel):
@@ -133,6 +166,8 @@ class GlobalSettingsUpdate(BaseModel):
     managed_skills: Optional[list[ManagedSkillSpec]] = None
     lane_configs: Optional[dict[str, LaneConfig]] = None
     systemone_config: Optional[SystemOneConfig] = None
+    watchdog: Optional[WatchdogConfig] = None
+    autorunner: Optional[AutoRunnerConfig] = None
 
 
 class ProjectCreate(BaseModel):
@@ -222,6 +257,29 @@ class ProposalItemCreate(BaseModel):
     do_md: str = ""
     done_when_md: str = ""
     rationale_md: str = ""
+
+
+class GrillChatMessage(BaseModel):
+    role: str  # 'user', 'assistant', 'system'
+    content: str
+    timestamp: str = ""
+
+
+class GrillChatRequest(BaseModel):
+    message: str
+    history: list[GrillChatMessage] = Field(default_factory=list)
+
+
+class GrillChatResponse(BaseModel):
+    reply: str
+    suggested_quick_replies: list[str] = Field(default_factory=list)
+    can_generate_proposals: bool = False
+    draft_proposals: list[ProposalItemCreate] = Field(default_factory=list)
+
+
+class GrillProposalsGenerateRequest(BaseModel):
+    history: list[GrillChatMessage] = Field(default_factory=list)
+    auto_promote: bool = False
 
 
 class ProposeTicketsRequest(BaseModel):

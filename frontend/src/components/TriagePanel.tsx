@@ -5,12 +5,14 @@ import {
   Compass,
   FlaskConical,
   Link2,
+  Mic,
   Plus,
   Send,
   Sparkles,
   Trash2,
 } from 'lucide-react'
 import { api } from '../api'
+import { GrillMeDrawer } from './GrillMeDrawer'
 import type { AgentProfile, Section, Ticket } from '../types'
 
 interface TriagePanelProps {
@@ -33,6 +35,7 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
   onSelectTicket,
 }) => {
   const triageTickets = tickets.filter((t) => t.status === 'triage')
+  const [grillTicket, setGrillTicket] = useState<Ticket | null>(null)
 
   // Triage Creation Template Mode
   const [templateMode, setTemplateMode] = useState<TriageTemplateMode>('external-scan')
@@ -572,6 +575,14 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
+                      onClick={() => setGrillTicket(t)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600/30 hover:bg-violet-600/50 text-xs font-semibold text-violet-200 border border-violet-500/50 shadow-sm shadow-violet-600/20 transition cursor-pointer"
+                    >
+                      <Mic className="w-3.5 h-3.5 text-violet-400" />
+                      🎙️ Grill Me Interview
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setActiveFindingsTicket(
                           activeFindingsTicket === t.code ? null : t.code,
@@ -865,6 +876,16 @@ export const TriagePanel: React.FC<TriagePanelProps> = ({
           })
         )}
       </div>
+
+      {grillTicket && (
+        <GrillMeDrawer
+          isOpen={Boolean(grillTicket)}
+          ticket={grillTicket}
+          projectSlug={projectSlug}
+          onClose={() => setGrillTicket(null)}
+          onProposalsCreated={() => onRefresh()}
+        />
+      )}
     </div>
   )
 }

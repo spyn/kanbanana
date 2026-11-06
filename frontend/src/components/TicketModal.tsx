@@ -9,6 +9,7 @@ import {
   GitMerge,
   GitPullRequest,
   MessageSquarePlus,
+  Mic,
   Pause,
   Play,
   Send,
@@ -19,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../api'
+import { GrillMeDrawer } from './GrillMeDrawer'
 import type { NoteKind, Section, Ticket, TicketStatus } from '../types'
 
 interface TicketModalProps {
@@ -61,6 +63,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
   const [editingSpec, setEditingSpec] = useState<boolean>(false)
   const [isHeld, setIsHeld] = useState<boolean>(ticket.is_held ?? false)
   const [togglingHold, setTogglingHold] = useState<boolean>(false)
+  const [showGrillDrawer, setShowGrillDrawer] = useState<boolean>(false)
 
   const [noteAuthor, setNoteAuthor] = useState<string>('user')
   const [noteKind, setNoteKind] = useState<NoteKind>(
@@ -271,6 +274,18 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {ticket.status === 'triage' && (
+              <button
+                type="button"
+                onClick={() => setShowGrillDrawer(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/50 transition cursor-pointer shadow-sm shadow-violet-600/20"
+                title="Open interactive technical alignment interview"
+              >
+                <Mic className="w-3.5 h-3.5 text-violet-400" />
+                Grill Me
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleToggleHold}
@@ -908,6 +923,16 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           </div>
         </div>
       </div>
+
+      {showGrillDrawer && (
+        <GrillMeDrawer
+          isOpen={showGrillDrawer}
+          ticket={ticket}
+          projectSlug={projectSlug}
+          onClose={() => setShowGrillDrawer(false)}
+          onProposalsCreated={(updated) => onUpdated(updated)}
+        />
+      )}
     </div>
   )
 }

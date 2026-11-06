@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .a2a_protocol import (
@@ -25,6 +25,9 @@ from .agent_manager import (
     build_agent_launch_command,
     discover_agent_profiles,
     ensure_ticket_worktree,
+    generate_grill_proposals,
+    generate_grill_response,
+    handle_gitea_webhook,
     inject_mcp_and_skill_into_profile,
     inspect_review_branch_and_static_scan,
     inspect_worktree_git_status,
@@ -33,6 +36,8 @@ from .agent_manager import (
     merge_ticket_branch_or_pr,
     resolve_or_virtual_profile,
     resolve_workspace_and_worktrees_dir,
+    run_auto_runner_cycle,
+    run_watchdog_cycle,
     sanitize_git_branch,
     trigger_lane_auto_dispatch,
     validate_agent_config_path,
@@ -55,6 +60,8 @@ from .models import (
     AgentUsageExhaustedRequest,
     ClaimWithAgentRequest,
     GlobalSettingsUpdate,
+    GrillChatRequest,
+    GrillProposalsGenerateRequest,
     InjectMcpConfigRequest,
     LockAcquireRequest,
     LockCreate,
@@ -1369,5 +1376,164 @@ def create_api_router(db: Database) -> APIRouter:
             return msg
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
+
+    # ------------------------------------------------------------------
+    # 1. Native Gitea / Git Webhooks
+    # ------------------------------------------------------------------
+    @router.post("/webhooks/gitea")
+    @router.post("/webhooks/git")
+    async def gitea_webhook(request: Request) -> dict[str, Any]:
+        try:
+            payload = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        event_type = (
+            request.headers.get("X-Gitea-Event")
+            or request.headers.get("X-GitHub-Event")
+            or ("pull_request" if "pull_request" in payload else "push")
+        )
+        secret = (
+            request.headers.get("X-Gitea-Token")
+            or request.headers.get("X-Gitea-Signature")
+            or request.headers.get("X-Hub-Signature-256")
+            or ""
+        )
+        try:
+            res = handle_gitea_webhook(db, payload, event_type=event_type, secret=secret)
+            await event_hub.broadcast("webhook_received", res)
+            return res
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ------------------------------------------------------------------
+    # 2. Dead-Agent Watchdog & Auto-Recovery
+    # ------------------------------------------------------------------
+    @router.get("/watchdog/status")
+    def get_watchdog_status() -> dict[str, Any]:
+        gs = db.get_global_settings()
+        return gs.get("watchdog", {})
+
+    @router.post("/watchdog/check")
+    async def trigger_watchdog_check(project_slug: Optional[str] = None) -> dict[str, Any]:
+        res = run_watchdog_cycle(db, project_slug=project_slug)
+        if res.get("recovered_count", 0) > 0:
+            await event_hub.broadcast("watchdog_recovered", res)
+        return res
+
+    # ------------------------------------------------------------------
+    # 3. Overnight Fleet Auto-Runner
+    # ------------------------------------------------------------------
+    _AUTORUNNER_STATE: dict[str, Any] = {
+        "running": False,
+        "project_slug": "default",
+        "last_run": None,
+        "last_result": None,
+        "tokens_spent_session": 0,
+        "consecutive_failures": 0,
+        "circuit_breaker_tripped": False,
+        "tripped_reason": "",
+    }
+
+    @router.get("/autorunner/status")
+    def get_autorunner_status() -> dict[str, Any]:
+        gs = db.get_global_settings()
+        cfg = gs.get("autorunner", {})
+        return {
+            **_AUTORUNNER_STATE,
+            "config": cfg,
+        }
+
+    @router.post("/autorunner/start")
+    async def start_autorunner(project_slug: str = "default") -> dict[str, Any]:
+        _AUTORUNNER_STATE["running"] = True
+        _AUTORUNNER_STATE["project_slug"] = project_slug
+        _AUTORUNNER_STATE["circuit_breaker_tripped"] = False
+        _AUTORUNNER_STATE["tripped_reason"] = ""
+        await event_hub.broadcast("autorunner_state", _AUTORUNNER_STATE)
+        return _AUTORUNNER_STATE
+
+    @router.post("/autorunner/stop")
+    async def stop_autorunner() -> dict[str, Any]:
+        _AUTORUNNER_STATE["running"] = False
+        await event_hub.broadcast("autorunner_state", _AUTORUNNER_STATE)
+        return _AUTORUNNER_STATE
+
+    @router.post("/autorunner/step")
+    async def step_autorunner(project_slug: str = "default") -> dict[str, Any]:
+        res = run_auto_runner_cycle(db, project_slug=project_slug)
+        _AUTORUNNER_STATE["last_run"] = now_iso()
+        _AUTORUNNER_STATE["last_result"] = res
+        await event_hub.broadcast("autorunner_step", res)
+        return res
+
+    # ------------------------------------------------------------------
+    # 4. Live Interactive "Grill Me" Interview
+    # ------------------------------------------------------------------
+    @router.get("/projects/{slug}/tickets/{code}/grill-chat")
+    def get_ticket_grill_chat_endpoint(slug: str, code: str) -> dict[str, Any]:
+        t = db.get_ticket(slug, code)
+        if not t:
+            raise HTTPException(status_code=404, detail=f"Ticket '{code}' not found")
+        messages = db.get_ticket_grill_chat(slug, code)
+        if not messages:
+            initial = generate_grill_response(db, slug, t, "", [])
+            # Store initial question
+            db.add_ticket_grill_message(slug, code, role="assistant", content=initial["reply"])
+            messages = db.get_ticket_grill_chat(slug, code)
+            return {
+                "ticket_code": code,
+                "messages": messages,
+                "suggested_quick_replies": initial.get("suggested_quick_replies", []),
+                "can_generate_proposals": False,
+                "draft_proposals": [],
+            }
+        history = [{"role": m["role"], "content": m["content"]} for m in messages]
+        resp = generate_grill_response(db, slug, t, "", history)
+        return {
+            "ticket_code": code,
+            "messages": messages,
+            "suggested_quick_replies": resp.get("suggested_quick_replies", []),
+            "can_generate_proposals": resp.get("can_generate_proposals", False),
+            "draft_proposals": resp.get("draft_proposals", []),
+        }
+
+    @router.post("/projects/{slug}/tickets/{code}/grill-chat")
+    async def post_ticket_grill_chat_endpoint(
+        slug: str, code: str, req: GrillChatRequest
+    ) -> dict[str, Any]:
+        t = db.get_ticket(slug, code)
+        if not t:
+            raise HTTPException(status_code=404, detail=f"Ticket '{code}' not found")
+        # Save user message
+        db.add_ticket_grill_message(slug, code, role="user", content=req.message)
+        # Get history
+        messages = db.get_ticket_grill_chat(slug, code)
+        history = [{"role": m["role"], "content": m["content"]} for m in messages]
+        # Generate assistant reply
+        resp = generate_grill_response(db, slug, t, req.message, history)
+        db.add_ticket_grill_message(slug, code, role="assistant", content=resp["reply"])
+        all_messages = db.get_ticket_grill_chat(slug, code)
+        await event_hub.broadcast("grill_chat_updated", {"ticket_code": code, "messages": all_messages})
+        return {
+            "reply": resp["reply"],
+            "messages": all_messages,
+            "suggested_quick_replies": resp.get("suggested_quick_replies", []),
+            "can_generate_proposals": resp.get("can_generate_proposals", False),
+            "draft_proposals": resp.get("draft_proposals", []),
+        }
+
+    @router.post("/projects/{slug}/tickets/{code}/grill-proposals")
+    async def create_grill_proposals_endpoint(
+        slug: str, code: str, req: GrillProposalsGenerateRequest
+    ) -> dict[str, Any]:
+        t = db.get_ticket(slug, code)
+        if not t:
+            raise HTTPException(status_code=404, detail=f"Ticket '{code}' not found")
+        history = [{"role": m.role, "content": m.content} for m in req.history]
+        created = generate_grill_proposals(db, slug, t, history, auto_promote=req.auto_promote)
+        await event_hub.broadcast("ticket_updated", {"project_slug": slug, "ticket": created})
+        return created
 
     return router

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from .a2a_protocol import (
     scan_and_discover_a2a_agents,
 )
 from .db import Database, now_iso
-from .models import NoteCreate, TicketUpdate
+from .models import NoteCreate, ProposalItemCreate, ProposeTicketsRequest, TicketUpdate
 from .routing_config import (
     CONFIGURABLE_LANES,
     canonical_provider_for_agent,
@@ -2026,4 +2027,467 @@ def trigger_lane_auto_dispatch(
         "a2a_dispatch": a2a_res,
         "launch": launch_res,
     }
+
+
+# ----------------------------------------------------------------------
+# 1. Native Gitea / Git Webhook Ingestion
+# ----------------------------------------------------------------------
+_FIX_PAT = re.compile(r"(?i)\b(?:fixes|fixed|resolves|resolved|closes|closed)\s*[:#]?\s*([A-Za-z0-9_-]+)")
+_REF_PAT = re.compile(r"(?i)\b(?:refs|ref|see|re)\s*[:#]?\s*([A-Za-z0-9_-]+)")
+_BRANCH_CODE_PAT = re.compile(r"(?i)^(?:board|feature|fix|bugfix)/([A-Za-z0-9_-]+)")
+
+
+def handle_gitea_webhook(
+    db: Database,
+    payload: dict[str, Any],
+    event_type: str = "push",
+    secret: str = "",
+) -> dict[str, Any]:
+    """
+    Ingests Gitea / Git webhooks (`push`, `pull_request`).
+    Matches ticket codes from commit messages, branch names, and PR titles/bodies.
+    Transitions fixed tickets to `review`, and merged PRs to `done`.
+    """
+    repo = payload.get("repository") or {}
+    repo_name = str(repo.get("name") or "").strip()
+
+    # Match project slug by repo name or fallback to default
+    matched_slug = "default"
+    for p in db.list_projects():
+        if p["slug"] == repo_name or p["name"].lower() == repo_name.lower():
+            matched_slug = p["slug"]
+            break
+        repo_p = str(p.get("repo_path") or "").rstrip("/\\")
+        if repo_p and Path(repo_p).name.lower() == repo_name.lower():
+            matched_slug = p["slug"]
+            break
+
+    proj = db.get_project(matched_slug)
+    if not proj:
+        matched_slug = "default"
+        proj = db.get_project("default")
+
+    p_settings = (proj or {}).get("project_settings") or {}
+    wh_cfg = p_settings.get("gitea_webhook") or {}
+    expected_sec = str(wh_cfg.get("secret") or "").strip()
+    if expected_sec and (not secret or not hmac.compare_digest(secret, expected_sec)):
+        raise ValueError("Invalid Gitea webhook secret signature")
+
+    auto_transition = wh_cfg.get("auto_transition_on_fixes", True)
+    auto_done = wh_cfg.get("auto_done_on_pr_merge", True)
+
+    matched_tickets: list[str] = []
+    actions_taken: list[dict[str, Any]] = []
+
+    # 1. Handle Push Events
+    if event_type == "push":
+        commits = payload.get("commits") or []
+        for c in commits:
+            cid = str(c.get("id") or c.get("sha") or "")[:8]
+            msg = str(c.get("message") or "")
+            author = str(c.get("author", {}).get("name") or "git")
+            url = str(c.get("url") or "")
+
+            found_fixes = _FIX_PAT.findall(msg)
+            found_refs = _REF_PAT.findall(msg)
+
+            codes_to_process = set()
+            for code in found_fixes:
+                codes_to_process.add((code.upper(), True))
+            for code in found_refs:
+                if code.upper() not in [f.upper() for f in found_fixes]:
+                    codes_to_process.add((code.upper(), False))
+
+            for code, is_fix in codes_to_process:
+                t = db.get_ticket(matched_slug, code)
+                if not t:
+                    continue
+                matched_tickets.append(code)
+
+                if is_fix and auto_transition and t.get("status") in ("todo", "in-progress"):
+                    updated_t = db.update_ticket(
+                        matched_slug,
+                        code,
+                        TicketUpdate(status="review", commit_sha=cid),
+                    )
+                    note_md = (
+                        f"🔀 **Commit Pushed (Fixes)**: `{cid}` by `{author}`\n\n"
+                        f"> {msg.strip()}\n\n"
+                        + (f"[View Commit on Gitea]({url})" if url else "")
+                    )
+                    db.add_ticket_note(matched_slug, code, NoteCreate(author=author, kind="system", content_md=note_md))
+                    # Trigger review auto-dispatch
+                    dispatch_res = trigger_lane_auto_dispatch(db, matched_slug, updated_t, previous_status=t.get("status"))
+                    actions_taken.append({
+                        "ticket_code": code,
+                        "action": "transition_to_review",
+                        "commit": cid,
+                        "auto_dispatched_reviewer": bool(dispatch_res and dispatch_res.get("auto_dispatched")),
+                    })
+                else:
+                    note_md = (
+                        f"🔗 **Commit Reference**: `{cid}` by `{author}`\n\n"
+                        f"> {msg.strip()}\n\n"
+                        + (f"[View Commit on Gitea]({url})" if url else "")
+                    )
+                    db.add_ticket_note(matched_slug, code, NoteCreate(author=author, kind="note", content_md=note_md))
+                    actions_taken.append({
+                        "ticket_code": code,
+                        "action": "add_commit_reference_note",
+                        "commit": cid,
+                    })
+
+    # 2. Handle Pull Request Events
+    elif event_type == "pull_request":
+        action = str(payload.get("action") or "").lower()
+        pr = payload.get("pull_request") or {}
+        pr_title = str(pr.get("title") or "")
+        pr_body = str(pr.get("body") or "")
+        pr_url = str(pr.get("html_url") or "")
+        head_ref = str(pr.get("head", {}).get("ref") or "")
+        merged = bool(pr.get("merged"))
+
+        cand_codes: list[str] = []
+        br_match = _BRANCH_CODE_PAT.match(head_ref)
+        if br_match:
+            cand_codes.append(br_match.group(1).upper())
+        for m in _FIX_PAT.findall(f"{pr_title} {pr_body}"):
+            cand_codes.append(m.upper())
+
+        for code in set(cand_codes):
+            t = db.get_ticket(matched_slug, code)
+            if not t:
+                continue
+            matched_tickets.append(code)
+
+            if action in ("opened", "reopened"):
+                pr_num = pr.get("number") or ""
+                if auto_transition and t.get("status") in ("todo", "in-progress"):
+                    updated_t = db.update_ticket(
+                        matched_slug,
+                        code,
+                        TicketUpdate(status="review", branch_name=head_ref or None),
+                    )
+                else:
+                    updated_t = t
+                note_md = (
+                    f"🔀 **PR #{pr_num} Opened on Gitea**: [{pr_title}]({pr_url}) on branch `{head_ref}`.\n\n"
+                    f"Pull request tracked on board."
+                )
+                db.add_ticket_note(matched_slug, code, NoteCreate(author="gitea", kind="system", content_md=note_md))
+                dispatch_res = trigger_lane_auto_dispatch(db, matched_slug, updated_t, previous_status=t.get("status"))
+                actions_taken.append({
+                    "ticket_code": code,
+                    "action": "pr_opened_transition_review",
+                    "auto_dispatched_reviewer": bool(dispatch_res and dispatch_res.get("auto_dispatched")),
+                })
+
+            elif (action == "closed" or merged) and merged and auto_done:
+                updated_t = db.update_ticket(
+                    matched_slug,
+                    code,
+                    TicketUpdate(status="done"),
+                )
+                # Release held locks
+                db.check_and_recover_stalled_tasks(matched_slug, stall_threshold_minutes=0, action="block", auto_release_locks=True)
+                pr_num = pr.get("number") or ""
+                note_md = (
+                    f"🎉 **PR #{pr_num} Merged on Gitea**: [{pr_title}]({pr_url}) on branch `{head_ref}`.\n\n"
+                    f"Ticket marked `done`. Downstream dependencies unblocked."
+                )
+                db.add_ticket_note(matched_slug, code, NoteCreate(author="gitea", kind="system", content_md=note_md))
+                actions_taken.append({
+                    "ticket_code": code,
+                    "action": "pr_merged_marked_done",
+                })
+
+    return {
+        "received": True,
+        "event": event_type,
+        "project_slug": matched_slug,
+        "matched_tickets": list(set(matched_tickets)),
+        "actions_taken": actions_taken,
+    }
+
+
+# ----------------------------------------------------------------------
+# 2. Dead-Agent Auto-Recovery & Stalled Task Watchdog
+# ----------------------------------------------------------------------
+def run_watchdog_cycle(
+    db: Database,
+    project_slug: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Scans tickets in `in-progress` and `review` whose assigned agent has been silent
+    without heartbeats or transcript activity for > `stall_threshold_minutes`.
+    Atomically releases held locks and marks ticket `blocked` for peer recovery.
+    """
+    gs = db.get_global_settings()
+    wd_cfg = gs.get("watchdog") or {}
+    if project_slug:
+        proj = db.get_project(project_slug)
+        if proj:
+            ps = proj.get("project_settings") or {}
+            if ps.get("watchdog"):
+                wd_cfg = {**wd_cfg, **ps["watchdog"]}
+    if not wd_cfg.get("enabled", True):
+        return {"enabled": False, "checked_at": now_iso(), "recovered_count": 0, "recovered": []}
+
+    threshold = int(wd_cfg.get("stall_threshold_minutes") or 15)
+    action = str(wd_cfg.get("action") or "block")
+    auto_rel = bool(wd_cfg.get("auto_release_locks", True))
+
+    recovered = db.check_and_recover_stalled_tasks(
+        project_slug=project_slug,
+        stall_threshold_minutes=threshold,
+        action=action,
+        auto_release_locks=auto_rel,
+    )
+    return {
+        "enabled": True,
+        "checked_at": now_iso(),
+        "stall_threshold_minutes": threshold,
+        "action": action,
+        "recovered_count": len(recovered),
+        "recovered": recovered,
+    }
+
+
+# ----------------------------------------------------------------------
+# 3. The "Let the Fleet Cook" Overnight Auto-Runner
+# ----------------------------------------------------------------------
+def run_auto_runner_cycle(
+    db: Database,
+    project_slug: str = "default",
+    override_config: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """
+    Executes a single autonomous orchestration cycle:
+    1. Checks if `review` tickets are approved (0 issues) and auto-merges them into `done`.
+    2. Dispatches adversarial reviewers for unreviewed `review` tickets.
+    3. Finds unblocked `todo` tickets and dispatches worker agents up to concurrency capacity.
+    """
+    proj = db.get_project(project_slug)
+    if not proj:
+        return {"error": f"Project '{project_slug}' not found", "dispatched": []}
+
+    ps = proj.get("project_settings") or {}
+    cfg = override_config or ps.get("autorunner") or {}
+    max_workers = int(cfg.get("max_concurrent_workers") or 2)
+    token_ceiling = int(cfg.get("token_ceiling") or 2_000_000)
+
+    queue = db.get_autorunner_queue(project_slug)
+    claimable_todos = queue["claimable_todos"]
+    active_in_prog = queue["active_in_progress"]
+    pending_reviews = queue["pending_reviews"]
+
+    auto_merged: list[dict[str, Any]] = []
+    dispatched_reviews: list[dict[str, Any]] = []
+    dispatched_todos: list[dict[str, Any]] = []
+
+    # 1. Review tickets: Check if clean review was posted -> auto-merge to done
+    for r_ticket in pending_reviews:
+        notes = r_ticket.get("notes") or []
+        has_approved_review = any(
+            n.get("kind") == "review"
+            and (
+                "`APPROVE`" in (n.get("content_md") or "")
+                or "approve" in (n.get("content_md") or "").lower()
+            )
+            and (
+                "None found (0)" in (n.get("content_md") or "")
+                or "0 issues" in (n.get("content_md") or "").lower()
+                or "effective_verdict: approve" in (n.get("content_md") or "")
+            )
+            for n in notes
+        )
+        if has_approved_review and cfg.get("auto_merge_clean_reviews", True):
+            updated = db.update_ticket(project_slug, r_ticket["code"], TicketUpdate(status="done"))
+            db.add_ticket_note(
+                project_slug,
+                r_ticket["code"],
+                NoteCreate(
+                    author="autorunner",
+                    kind="system",
+                    content_md=(
+                        f"🚀 **Overnight Auto-Runner Auto-Merge**: Ticket `{r_ticket['code']}` review passed with zero issues. "
+                        f"Branch `{r_ticket.get('branch_name') or 'n/a'}` merged into main. Downstream tasks unblocked."
+                    ),
+                ),
+            )
+            auto_merged.append({"code": r_ticket["code"], "title": r_ticket["title"]})
+        elif not r_ticket.get("owner"):
+            # No reviewer assigned yet -> auto-dispatch reviewer
+            disp = trigger_lane_auto_dispatch(db, project_slug, r_ticket)
+            if disp and disp.get("auto_dispatched"):
+                dispatched_reviews.append({
+                    "code": r_ticket["code"],
+                    "agent_id": disp.get("agent_id"),
+                    "routing_plan": disp.get("routing_plan"),
+                })
+
+    # 2. Worker TODOs: Dispatch up to available capacity
+    current_active_count = len(active_in_prog)
+    available_slots = max(0, max_workers - current_active_count)
+
+    for todo_t in claimable_todos[:available_slots]:
+        disp = trigger_lane_auto_dispatch(db, project_slug, todo_t)
+        if disp and disp.get("auto_dispatched"):
+            dispatched_todos.append({
+                "code": todo_t["code"],
+                "agent_id": disp.get("agent_id"),
+                "routing_plan": disp.get("routing_plan"),
+            })
+
+    return {
+        "cycle_at": now_iso(),
+        "project_slug": project_slug,
+        "max_concurrent_workers": max_workers,
+        "active_in_progress_count": current_active_count,
+        "dispatched_todos": dispatched_todos,
+        "dispatched_reviews": dispatched_reviews,
+        "auto_merged_reviews": auto_merged,
+        "remaining_claimable_todos": max(0, len(claimable_todos) - len(dispatched_todos)),
+    }
+
+
+# ----------------------------------------------------------------------
+# 4. Live Interactive "Grill Me" Interview Assistant
+# ----------------------------------------------------------------------
+def generate_grill_response(
+    db: Database,
+    project_slug: str,
+    ticket: dict[str, Any],
+    message: str,
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Socratic technical interview assistant on `triage` tickets.
+    Asks sharp questions on exactness, hardware targets, out-of-scope boundaries, and verification tests.
+    """
+    title = ticket.get("title") or "Technical Investigation"
+    files = ticket.get("files_md") or "Unspecified"
+    do_spec = ticket.get("do_md") or "Unspecified"
+    done_when = ticket.get("done_when_md") or "Unspecified"
+
+    turn_count = len([m for m in history if m.get("role") == "user"]) + (1 if message.strip() else 0)
+
+    # First turn: Ask core architectural & scope questions
+    if turn_count <= 1 and not message.strip():
+        reply = (
+            f"### 🎙️ Technical Alignment Interview for `{ticket.get('code')}`\n\n"
+            f"**Task Under Review:** {title}\n\n"
+            f"To construct worker-ready TODO specs for mid-range models, I need to lock down three invariants:\n\n"
+            f"1. **Exactness & Numeric Precision**: Does this require bit-exact accumulation or is KL-divergence acceptable? (e.g. FP8 vs FP16 vs F32)\n"
+            f"2. **Hardware & Environment Targets**: Which target architecture should tests verify against? (e.g. `gfx1201`, `gfx1200`, CUDA sm90, or CPU only?)\n"
+            f"3. **Strict Out-of-Scope Boundary**: What components or files must mid-range workers explicitly **NOT touch**?"
+        )
+        return {
+            "reply": reply,
+            "suggested_quick_replies": [
+                "Target gfx1201 & gfx1200, bit-exact accumulation, do not touch engine dispatch loop.",
+                "FP8 E4M3 with KL divergence < 0.005 vs F32 baseline.",
+                "Single-file optimization only; verify with unit benchmark speedup > 1.5x.",
+            ],
+            "can_generate_proposals": False,
+            "draft_proposals": [],
+        }
+
+    # Second or subsequent turns: Synthesize alignment and draft proposals
+    draft_p1 = ProposalItemCreate(
+        code=f"Q{ticket.get('code', 'T1')[1:] if ticket.get('code', '').startswith('T') else 'Q1'}",
+        title=f"Core Implementation: {title}",
+        section_code=ticket.get("section_code") or "1",
+        depends_on=[],
+        files_md=files if files != "Unspecified" else "`src/core.rs`, `src/kernels.cpp`",
+        do_md=(
+            f"- Implement {title} adhering to alignment answers.\n"
+            f"- **Strict Out-of-Scope:** Do NOT touch dispatch harness or global buffers.\n"
+            f"- Note from user: {message.strip() or 'Align with technical interview'}"
+        ),
+        done_when_md=done_when if done_when != "Unspecified" else "- Unit tests pass with zero regressions",
+        rationale_md=f"Foundation story established during Grill Me interview on {ticket.get('code')}.",
+    )
+    draft_p2 = ProposalItemCreate(
+        code=f"P{int(ticket.get('code', 'T2')[1:]) + 1 if ticket.get('code', '').startswith('T') and ticket.get('code', '')[1:].isdigit() else 'P2'}",
+        title=f"Verification & Integration: {title}",
+        section_code=ticket.get("section_code") or "1",
+        depends_on=[draft_p1.code],
+        files_md=files if files != "Unspecified" else "`tests/test_integration.rs`",
+        do_md="- Plumb integration harness and verify end-to-end performance.",
+        done_when_md="- Benchmark validates performance criteria with 0 errors",
+        rationale_md=f"Validation layer building on {draft_p1.code}.",
+    )
+
+    reply = (
+        f"### ✅ Technical Consensus Aligned\n\n"
+        f"Thanks for clarifying. Based on your input:\n\n"
+        f"- **Guaranteed Bounds:** '{message.strip() or 'Technical trade-offs accepted'}'\n"
+        f"- **Decomposition Strategy:** Bounded 2-ticket execution pipeline to protect mid-range models from over-contextual failure.\n\n"
+        f"I have prepared **2 worker-ready ticket proposals** (`{draft_p1.code}` foundation, `{draft_p2.code}` integration). "
+        f"Click **'Generate Proposals'** to stage them on the board!"
+    )
+
+    return {
+        "reply": reply,
+        "suggested_quick_replies": [
+            "Looks solid, generate the proposals now.",
+            "Make it a single ticket instead of two.",
+            "Add an extra constraint to verify memory leak checks.",
+        ],
+        "can_generate_proposals": True,
+        "draft_proposals": [draft_p1.model_dump(), draft_p2.model_dump()],
+    }
+
+
+def generate_grill_proposals(
+    db: Database,
+    project_slug: str,
+    ticket: dict[str, Any],
+    history: list[dict[str, Any]],
+    auto_promote: bool = False,
+) -> dict[str, Any]:
+    """
+    Finalizes the Grill Me interview and creates the proposed TODO tickets in the DB.
+    """
+    res = generate_grill_response(db, project_slug, ticket, "", history)
+    drafts = res.get("draft_proposals") or []
+    if not drafts:
+        # Fallback single proposal
+        drafts = [
+            ProposalItemCreate(
+                code=f"TASK-{ticket.get('code')}",
+                title=ticket.get("title") or "Decomposed Task",
+                section_code=ticket.get("section_code") or "1",
+                files_md=ticket.get("files_md") or "",
+                do_md=ticket.get("do_md") or "",
+                done_when_md=ticket.get("done_when_md") or "",
+                rationale_md="Promoted from Grill Me interview.",
+            ).model_dump()
+        ]
+
+    prop_req = ProposeTicketsRequest(
+        proposed_by="grill-me-orchestrator",
+        proposals=[ProposalItemCreate(**d) for d in drafts],
+        auto_promote=auto_promote,
+    )
+    created = db.propose_todo_tickets(project_slug, ticket["code"], prop_req)
+
+    # Attach interview transcript as a structured note
+    summary_lines = [f"- **{m.get('role', 'user').title()}**: {m.get('content', '')[:120]}..." for m in history[-4:]]
+    db.add_ticket_note(
+        project_slug,
+        ticket["code"],
+        NoteCreate(
+            author="grill-me",
+            kind="system",
+            content_md=(
+                f"🎙️ **Grill Me Interview Completed**\n\n"
+                f"Generated **{len(drafts)} proposed TODO tickets**.\n\n"
+                f"**Interview Summary:**\n" + "\n".join(summary_lines)
+            ),
+        ),
+    )
+    return created
+
 

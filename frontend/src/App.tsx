@@ -8,6 +8,9 @@ import {
   FolderPlus,
   Kanban,
   MessageSquare,
+  Moon,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Settings,
@@ -15,6 +18,7 @@ import {
   Sparkles,
   Terminal,
   X,
+  Zap,
 } from 'lucide-react'
 import { api, getClientApiToken } from './api'
 import { AgentsTab } from './components/AgentsTab'
@@ -45,6 +49,7 @@ function encodeTokenSubprotocol(token: string): string {
 import type {
   AgentInfo,
   AgentProfile,
+  AutoRunnerStatus,
   BoardMessage,
   FeatureLock,
   GlobalSettings,
@@ -87,6 +92,54 @@ export default function App() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [wsConnected, setWsConnected] = useState<boolean>(false)
   const [copiedMcp, setCopiedMcp] = useState<boolean>(false)
+
+  // Overnight Auto-Runner state
+  const [autorunnerStatus, setAutorunnerStatus] = useState<AutoRunnerStatus | null>(null)
+  const [showAutorunnerPopover, setShowAutorunnerPopover] = useState<boolean>(false)
+  const [autorunnerBusy, setAutorunnerBusy] = useState<boolean>(false)
+
+  const handleToggleAutorunner = async () => {
+    if (!activeSlug) return
+    setAutorunnerBusy(true)
+    try {
+      if (autorunnerStatus?.running) {
+        const res = await api.stopAutorunner()
+        setAutorunnerStatus(res)
+      } else {
+        const res = await api.startAutorunner(activeSlug)
+        setAutorunnerStatus(res)
+      }
+    } catch (e) {
+      console.error('Failed to toggle autorunner:', e)
+    } finally {
+      setAutorunnerBusy(false)
+    }
+  }
+
+  const handleStepAutorunner = async () => {
+    if (!activeSlug) return
+    setAutorunnerBusy(true)
+    try {
+      const res = await api.stepAutorunner(activeSlug)
+      if (res.status) {
+        setAutorunnerStatus(res.status)
+      }
+      await loadAll(activeSlug)
+    } catch (e) {
+      console.error('Failed to step autorunner:', e)
+    } finally {
+      setAutorunnerBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    const fetchStatus = () => {
+      api.getAutorunnerStatus().then(setAutorunnerStatus).catch(() => {})
+    }
+    fetchStatus()
+    const timer = window.setInterval(fetchStatus, 10000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const toggleWallboardMode = useCallback((nextValue?: boolean) => {
     setWallboardMode((prev) => {
@@ -245,6 +298,7 @@ export default function App() {
       setWorktreesOverview(wtOverview)
       setMessages(mList)
       setSkillsCatalog(catalogList)
+      api.getAutorunnerStatus().then(setAutorunnerStatus).catch(() => {})
     } catch (e) {
       console.error('Failed to load project data:', e)
     }
@@ -817,6 +871,121 @@ export default function App() {
                 v1.2-neuro
               </span>
             </button>
+
+            {/* Let the Fleet Cook Auto-Runner header pill & popover */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowAutorunnerPopover((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                  autorunnerStatus?.running
+                    ? 'bg-purple-950/80 text-purple-300 border-purple-600/60 hover:bg-purple-900/60 shadow-sm shadow-purple-600/25 ring-1 ring-purple-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-300'
+                }`}
+                title="Overnight Autonomous Pipeline Auto-Runner status & controls"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    autorunnerStatus?.running
+                      ? 'bg-purple-400 animate-pulse'
+                      : 'bg-slate-600'
+                  }`}
+                />
+                <Moon className="w-3.5 h-3.5 text-purple-400" />
+                <span>Auto-Runner</span>
+                {autorunnerStatus?.running ? (
+                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[9px] border border-purple-500/30">
+                    COOKING
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-500 font-mono text-[9px]">
+                    OFF
+                  </span>
+                )}
+              </button>
+
+              {showAutorunnerPopover && (
+                <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-purple-500/30 bg-slate-950/95 backdrop-blur-md p-4 shadow-2xl shadow-purple-950/50 z-50 flex flex-col gap-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Moon className="w-4 h-4 text-purple-400" />
+                      <span className="text-xs font-bold text-white tracking-tight">
+                        Overnight Auto-Runner
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[9px] font-mono uppercase px-2 py-0.5 rounded-full border ${
+                        autorunnerStatus?.running
+                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      {autorunnerStatus?.running ? 'ACTIVE LOOP' : 'PAUSED'}
+                    </span>
+                  </div>
+
+                  {autorunnerStatus?.circuit_breaker_tripped && (
+                    <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 p-2.5 text-[11px] text-rose-300 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Circuit Breaker Tripped:</strong>{' '}
+                        {autorunnerStatus.tripped_reason}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-2.5 flex flex-col">
+                      <span className="text-[10px] text-slate-500 uppercase">Tokens Session</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        {((autorunnerStatus?.tokens_spent_session || 0) / 1000).toFixed(1)}k
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-2.5 flex flex-col">
+                      <span className="text-[10px] text-slate-500 uppercase">Workers Limit</span>
+                      <span className="font-mono font-bold text-purple-300">
+                        {autorunnerStatus?.config?.max_concurrent_workers || 4} parallel
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={autorunnerBusy}
+                      onClick={handleToggleAutorunner}
+                      className={`w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50 ${
+                        autorunnerStatus?.running
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/30'
+                          : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30'
+                      }`}
+                    >
+                      {autorunnerStatus?.running ? (
+                        <>
+                          <Pause className="w-3.5 h-3.5" />
+                          {autorunnerBusy ? 'Pausing...' : 'Pause Overnight Cooker'}
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5" />
+                          {autorunnerBusy ? 'Starting...' : 'Let the Fleet Cook (Start)'}
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={autorunnerBusy}
+                      onClick={handleStepAutorunner}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-200 transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      {autorunnerBusy ? 'Stepping...' : 'Step Pipeline Once Now'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <button
               type="button"

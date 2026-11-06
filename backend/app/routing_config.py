@@ -12,11 +12,14 @@ import httpx
 
 from .models import (
     AgentLaneRule,
+    AutoRunnerConfig,
+    GiteaWebhookConfig,
     GlobalSettings,
     LaneConfig,
     ManagedSkillSpec,
     ProjectSettings,
     SystemOneConfig,
+    WatchdogConfig,
 )
 
 logger = logging.getLogger("kanbanana.systemone")
@@ -573,6 +576,19 @@ def normalize_global_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
     else:
         merged_data["systemone_config"] = defaults.systemone_config.model_dump()
 
+    # Normalize watchdog and autorunner
+    raw_wd = raw.get("watchdog")
+    if isinstance(raw_wd, dict):
+        merged_data["watchdog"] = WatchdogConfig(**raw_wd).model_dump()
+    else:
+        merged_data["watchdog"] = defaults.watchdog.model_dump()
+
+    raw_ar = raw.get("autorunner")
+    if isinstance(raw_ar, dict):
+        merged_data["autorunner"] = AutoRunnerConfig(**raw_ar).model_dump()
+    else:
+        merged_data["autorunner"] = defaults.autorunner.model_dump()
+
     return GlobalSettings(**merged_data).model_dump()
 
 
@@ -596,6 +612,24 @@ def normalize_project_settings(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
         merged["systemone_config"] = SystemOneConfig(**raw_s1).model_dump()
     else:
         merged["systemone_config"] = None
+
+    raw_wh = raw.get("gitea_webhook")
+    if isinstance(raw_wh, dict):
+        merged["gitea_webhook"] = GiteaWebhookConfig(**raw_wh).model_dump()
+    else:
+        merged["gitea_webhook"] = GiteaWebhookConfig().model_dump()
+
+    raw_pwd = raw.get("watchdog")
+    if isinstance(raw_pwd, dict):
+        merged["watchdog"] = WatchdogConfig(**raw_pwd).model_dump()
+    else:
+        merged["watchdog"] = WatchdogConfig().model_dump()
+
+    raw_par = raw.get("autorunner")
+    if isinstance(raw_par, dict):
+        merged["autorunner"] = AutoRunnerConfig(**raw_par).model_dump()
+    else:
+        merged["autorunner"] = AutoRunnerConfig().model_dump()
 
     return ProjectSettings(**merged).model_dump()
 
