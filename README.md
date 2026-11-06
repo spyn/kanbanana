@@ -184,8 +184,8 @@ Kanbanana includes a multi-stage [`Dockerfile`](./Dockerfile) and [`docker-compo
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/vibe/kanbanana.git
-cd kanbanana
+git clone ssh://gitea/spyn/kanbananna.git
+cd kanbananna
 
 # 2. Start the service
 docker compose up --build -d
