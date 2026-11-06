@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Settings,
   Settings2,
+  SlidersHorizontal,
   Sparkles,
   Terminal,
   X,
@@ -98,6 +99,16 @@ export default function App() {
   const [showAutorunnerPopover, setShowAutorunnerPopover] = useState<boolean>(false)
   const [autorunnerBusy, setAutorunnerBusy] = useState<boolean>(false)
 
+  const unblockedTodoCount = React.useMemo(() => {
+    return tickets.filter(
+      (t) => t.status === 'todo' && t.dependencies_satisfied && !t.is_held && !t.owner,
+    ).length
+  }, [tickets])
+
+  const cleanReviewCount = React.useMemo(() => {
+    return tickets.filter((t) => t.status === 'review' && !t.is_held).length
+  }, [tickets])
+
   const handleToggleAutorunner = async () => {
     if (!activeSlug) return
     setAutorunnerBusy(true)
@@ -108,6 +119,12 @@ export default function App() {
       } else {
         const res = await api.startAutorunner(activeSlug)
         setAutorunnerStatus(res)
+        // Instantly trigger an execution step so unblocked tasks/reviews start cooking without delay!
+        const stepRes = await api.stepAutorunner(activeSlug)
+        if (stepRes.status) {
+          setAutorunnerStatus(stepRes.status)
+        }
+        await loadAll(activeSlug)
       }
     } catch (e) {
       console.error('Failed to toggle autorunner:', e)
@@ -131,6 +148,25 @@ export default function App() {
       setAutorunnerBusy(false)
     }
   }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const isInput =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      if (isInput) return
+
+      if (e.altKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault()
+        void handleToggleAutorunner()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeSlug, autorunnerStatus?.running])
 
   useEffect(() => {
     const fetchStatus = () => {
@@ -872,36 +908,70 @@ export default function App() {
               </span>
             </button>
 
-            {/* Let the Fleet Cook Auto-Runner header pill & popover */}
-            <div className="relative">
+            {/* Fleet Master Transport Bar */}
+            <div className="relative flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-xl p-1 shadow-sm">
+              {/* Play / Pause Master Switch */}
+              <button
+                type="button"
+                disabled={autorunnerBusy}
+                onClick={handleToggleAutorunner}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50 select-none shadow-sm ${
+                  autorunnerStatus?.running
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/30 ring-1 ring-rose-400/40'
+                    : unblockedTodoCount > 0 || cleanReviewCount > 0
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-900/40 ring-1 ring-emerald-400/50'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                }`}
+                title={
+                  autorunnerStatus?.running
+                    ? 'Pause autonomous fleet (Alt+P)'
+                    : 'Start autonomous fleet — Let the fleet cook! (Alt+P)'
+                }
+              >
+                {autorunnerStatus?.running ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                    <span>Pause Fleet</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Let the Fleet Cook</span>
+                    {unblockedTodoCount > 0 || cleanReviewCount > 0 ? (
+                      <span className="px-1.5 py-0.2 rounded bg-black/30 font-mono text-[10px]">
+                        {unblockedTodoCount + cleanReviewCount}
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </button>
+
+              {/* Step Once Button */}
+              <button
+                type="button"
+                disabled={autorunnerBusy}
+                onClick={handleStepAutorunner}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-600 text-xs font-semibold text-slate-200 transition cursor-pointer disabled:opacity-50 select-none"
+                title="Step pipeline once: auto-merges 1 clean review or dispatches 1 unblocked task"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Step</span>
+              </button>
+
+              {/* Popover trigger / Stats Indicator */}
               <button
                 type="button"
                 onClick={() => setShowAutorunnerPopover((prev) => !prev)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                  autorunnerStatus?.running
-                    ? 'bg-purple-950/80 text-purple-300 border-purple-600/60 hover:bg-purple-900/60 shadow-sm shadow-purple-600/25 ring-1 ring-purple-500/30'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-300'
+                className={`p-1.5 rounded-lg transition cursor-pointer border ${
+                  showAutorunnerPopover
+                    ? 'bg-purple-900/50 text-purple-300 border-purple-500/50'
+                    : autorunnerStatus?.running
+                      ? 'bg-purple-950/40 text-purple-400 border-purple-800/40 hover:bg-purple-900/40'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-300 hover:bg-slate-800'
                 }`}
-                title="Overnight Autonomous Pipeline Auto-Runner status & controls"
+                title="Auto-Runner stats, token ceiling & diagnostics"
               >
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    autorunnerStatus?.running
-                      ? 'bg-purple-400 animate-pulse'
-                      : 'bg-slate-600'
-                  }`}
-                />
-                <Moon className="w-3.5 h-3.5 text-purple-400" />
-                <span>Auto-Runner</span>
-                {autorunnerStatus?.running ? (
-                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[9px] border border-purple-500/30">
-                    COOKING
-                  </span>
-                ) : (
-                  <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-500 font-mono text-[9px]">
-                    OFF
-                  </span>
-                )}
+                <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
 
               {showAutorunnerPopover && (
@@ -1114,6 +1184,12 @@ export default function App() {
             onQuickCreateTriage={() => setActiveTab('triage')}
             onQuickClaim={openClaimModal}
             sendItAnimation={sendItAnimation}
+            autorunnerRunning={autorunnerStatus?.running}
+            unblockedTodoCount={unblockedTodoCount}
+            cleanReviewCount={cleanReviewCount}
+            onStartAutorunner={handleToggleAutorunner}
+            onStepAutorunner={handleStepAutorunner}
+            autorunnerBusy={autorunnerBusy}
           />
         )}
 

@@ -16,6 +16,7 @@ import {
   Search,
   Sparkles,
   User,
+  Zap,
 } from 'lucide-react'
 import type { Section, Ticket, TicketStatus } from '../types'
 
@@ -34,6 +35,12 @@ interface KanbanBoardProps {
   onQuickCreateTriage: () => void
   onQuickClaim: (ticket: Ticket) => void
   sendItAnimation?: SendItAnimationState | null
+  autorunnerRunning?: boolean
+  unblockedTodoCount?: number
+  cleanReviewCount?: number
+  onStartAutorunner?: () => void
+  onStepAutorunner?: () => void
+  autorunnerBusy?: boolean
 }
 
 const COLUMNS: Array<{
@@ -87,6 +94,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onQuickCreateTriage,
   onQuickClaim,
   sendItAnimation,
+  autorunnerRunning,
+  unblockedTodoCount = 0,
+  cleanReviewCount = 0,
+  onStartAutorunner,
+  onStepAutorunner,
+  autorunnerBusy,
 }) => {
   const [selectedSection, setSelectedSection] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -422,6 +435,55 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           <pre className="whitespace-pre-wrap font-mono text-[11px] text-slate-300 leading-relaxed overflow-x-auto">
             {activeSectionObj.description_md}
           </pre>
+        </div>
+      )}
+
+      {/* Contextual Fleet Paused Alert & Fast Action Banner */}
+      {autorunnerRunning === false && (unblockedTodoCount > 0 || cleanReviewCount > 0) && (
+        <div className="rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900/95 to-amber-950/30 p-3 flex items-center justify-between gap-3 text-xs flex-wrap shadow-md">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-amber-200 uppercase tracking-wide text-[11px]">Fleet Paused</span>
+              <span className="text-slate-500">•</span>
+              <span className="text-slate-200">
+                {unblockedTodoCount > 0 && (
+                  <span>
+                    <strong className="text-amber-300 font-mono">{unblockedTodoCount}</strong> unblocked TODO{unblockedTodoCount === 1 ? '' : 's'} waiting to claim
+                  </span>
+                )}
+                {unblockedTodoCount > 0 && cleanReviewCount > 0 && <span className="text-slate-500"> and </span>}
+                {cleanReviewCount > 0 && (
+                  <span>
+                    <strong className="text-indigo-300 font-mono">{cleanReviewCount}</strong> review{cleanReviewCount === 1 ? '' : 's'} waiting to auto-merge
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={autorunnerBusy}
+              onClick={onStartAutorunner}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-sm cursor-pointer disabled:opacity-50 select-none ring-1 ring-emerald-400/50"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              Let the Fleet Cook
+            </button>
+            <button
+              type="button"
+              disabled={autorunnerBusy}
+              onClick={onStepAutorunner}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer disabled:opacity-50 select-none"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              Step 1 Task
+            </button>
+          </div>
         </div>
       )}
 
